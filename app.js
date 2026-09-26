@@ -643,6 +643,14 @@ function renderDetail() {
         <input data-field="title" value="${escapeAttribute(wish.title)}" maxlength="40" />
       </label>
       <label>
+        <span>添加者</span>
+        <input data-field="createdBy" value="${escapeAttribute(wish.createdBy || getCurrentProfileName())}" maxlength="16" placeholder="谁把这个愿望收进来了" />
+      </label>
+      <label>
+        <span>准备者</span>
+        <input data-field="preparedBy" value="${escapeAttribute(wish.preparedBy || getCurrentProfileName())}" maxlength="16" placeholder="谁在为它做准备" />
+      </label>
+      <label>
         <span>实现时间</span>
         <input data-field="fulfilledAt" type="date" value="${escapeAttribute(wish.fulfilledAt)}" />
       </label>
@@ -665,10 +673,6 @@ function renderDetail() {
         <textarea data-field="memory" placeholder="实现那天发生了什么，她笑了几次，你想记住什么。">${escapeHtml(wish.memory)}</textarea>
       </label>
       ${privatePrepMarkup}
-      <label class="diary-field">
-        <span>实现后的照片 + 文字故事</span>
-        <textarea data-field="diary" placeholder="实现后写成一篇小小日记，回忆册会优先展示这里。">${escapeHtml(wish.diary || "")}</textarea>
-      </label>
       <div class="cover-toolbar">
         <p class="cover-hint">这张图会作为愿望卡片缩略图和详情页封面。</p>
         <label class="upload-button">
@@ -681,7 +685,7 @@ function renderDetail() {
           <strong>${wish.fulfilledAt ? "这件愿望已经实现" : "实现这件愿望"}</strong>
           <span>${wish.fulfilledAt ? `实现于 ${escapeHtml(wish.fulfilledAt)} · ${escapeHtml(wish.fulfilledBy || "愿望箱成员")}` : "填写一张照片和一段文字，把它收进回忆册。"}</span>
         </div>
-        ${wish.fulfilledAt ? `<span class="done-stamp">已实现</span>` : `<button class="ink-button" id="markFulfilledButton" type="button">＋ 标记已实现</button>`}
+        ${wish.fulfilledAt ? `<button class="backup-button" id="markFulfilledButton" type="button">修改实现记录</button>` : `<button class="ink-button" id="markFulfilledButton" type="button">＋ 标记已实现</button>`}
       </div>
     </div>
   `;
@@ -689,7 +693,7 @@ function renderDetail() {
   detailPanel.querySelectorAll("[data-field]").forEach((input) => {
     input.addEventListener("input", (event) => {
       wish[event.target.dataset.field] = event.target.value;
-      if (event.target.dataset.field === "privatePrep" && currentSession) {
+      if (event.target.dataset.field === "privatePrep" && currentSession && !wish.preparedBy) {
         wish.preparedBy = getCurrentProfileName();
         wish.preparedById = currentSession.user.id;
       }
@@ -704,9 +708,13 @@ function renderDetail() {
           ? `实现于 ${wish.fulfilledAt}`
           : "还在等待一个合适的时刻";
       }
-      if (event.target.dataset.field === "title" || event.target.dataset.field === "fulfilledAt" || event.target.dataset.field === "reminderAt") {
+      if (event.target.dataset.field === "title" || event.target.dataset.field === "fulfilledAt" || event.target.dataset.field === "reminderAt" || event.target.dataset.field === "createdBy" || event.target.dataset.field === "preparedBy") {
         renderWishes(state.wishes.filter((item) => item.categoryId === state.activeCategoryId));
         renderMemories();
+        const credits = detailPanel.querySelector(".detail-title small");
+        if (credits) {
+          credits.textContent = `添加：${wish.createdBy || "愿望箱成员"}${wish.preparedBy ? ` · 准备：${wish.preparedBy}` : ""}`;
+        }
       }
       if (
         event.target.dataset.field === "priority" ||
@@ -737,6 +745,7 @@ function renderDetail() {
 
 function openFulfillDialog(wish) {
   fulfillingWish = wish;
+  document.querySelector("#fulfillDialogTitle").textContent = wish.fulfilledAt ? "修改这件小事的回忆" : "把这件小事收进回忆";
   fulfilledDateInput.value = wish.fulfilledAt || new Date().toISOString().slice(0, 10);
   fulfilledStoryInput.value = wish.diary || "";
   fulfilledPhotoInput.value = "";
@@ -850,8 +859,8 @@ function showWishForm() {
       memory: "",
       createdBy: getCurrentProfileName(),
       createdById: currentSession?.user?.id || "",
-      preparedBy: data.get("privatePrep").trim() ? getCurrentProfileName() : "",
-      preparedById: data.get("privatePrep").trim() ? currentSession?.user?.id || "" : "",
+      preparedBy: getCurrentProfileName(),
+      preparedById: currentSession?.user?.id || "",
       revealedPrep: "",
       memoryImage: "",
       fulfilledBy: "",
