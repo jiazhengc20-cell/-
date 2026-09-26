@@ -448,11 +448,62 @@ h2 {
 
 .category-item {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   padding: 9px;
   border-radius: 12px;
+}
+
+.category-select {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.category-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.mini-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(23, 22, 21, 0.14);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.mini-icon-button:hover {
+  background: rgba(22, 64, 223, 0.1);
+  color: var(--blue);
+}
+
+.category-delete-button {
+  font: inherit;
+  font-size: 1rem;
+}
+
+.category-cover-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .category-cover {
@@ -796,6 +847,35 @@ button:focus-visible {
   padding: 0 14px;
 }
 
+.wish-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+  padding-top: 2px;
+}
+
+.wish-actions label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.danger-button {
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid rgba(157, 53, 45, 0.24);
+  border-radius: 999px;
+  background: rgba(157, 53, 45, 0.08);
+  color: #8c332e;
+  font: inherit;
+}
+
+.danger-button:hover {
+  background: rgba(157, 53, 45, 0.14);
+}
+
 .person-tag {
   background: rgba(22, 64, 223, 0.08);
   color: #2745a1;
@@ -1075,6 +1155,10 @@ button:focus-visible {
   }
 
   .category-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .category-select {
     grid-template-columns: 64px minmax(0, 1fr);
   }
 
@@ -1088,6 +1172,14 @@ button:focus-visible {
   }
 
   .fulfill-toolbar .ink-button {
+    width: 100%;
+  }
+
+  .wish-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .wish-actions button {
     width: 100%;
   }
 

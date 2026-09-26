@@ -24,7 +24,7 @@ const seedState = {
       title: "在海边住一个清晨",
       note: "她说想醒来就能看到光落在水面上。先收藏几个安静一点的小岛民宿。",
       fulfilledAt: "",
-      reminderAt: "",
+      wishAt: "",
       privatePrep: "想找一家不用赶路的海边民宿，提前查一下日出时间。",
       diary: "",
       priority: "最近惦记",
@@ -42,7 +42,7 @@ const seedState = {
       title: "找一家窗边的抹茶店",
       note: "有木窗、书架、光线慢一点，最好能坐很久。",
       fulfilledAt: "2026-08-30",
-      reminderAt: "",
+      wishAt: "",
       privatePrep: "提前挑窗边位置，记得避开太吵的时段。",
       diary: "那天阳光靠在窗框上，抹茶的冰块慢慢化开。她说这个绿色很像夏天快结束的时候，于是这件小事就被收进来了。",
       priority: "非常想实现",
@@ -60,7 +60,7 @@ const seedState = {
       title: "送一本写满批注的书",
       note: "不是贵重礼物，是把想说的话夹在页边。",
       fulfilledAt: "",
-      reminderAt: "2026-10-01",
+      wishAt: "2026-10-01",
       privatePrep: "可以先选一本她最近会喜欢的书，把想说的话写在便签里。",
       diary: "",
       priority: "小小念头",
@@ -567,26 +567,66 @@ function renderCategories() {
   categoryList.innerHTML = "";
   state.categories.forEach((category) => {
     const count = state.wishes.filter((wish) => wish.categoryId === category.id).length;
-    const button = document.createElement("button");
-    button.className = `category-item${category.id === state.activeCategoryId ? " active" : ""}`;
-    button.type = "button";
-    button.style.setProperty("--category-color", category.color);
-    button.innerHTML = `
-      <span class="category-cover">
-        <img src="${escapeAttribute(getCategoryCover(category))}" alt="" />
-      </span>
-      <span>
-        <strong>${escapeHtml(category.name)}</strong>
-        <small>${count} 个愿望</small>
+    const item = document.createElement("div");
+    item.className = `category-item${category.id === state.activeCategoryId ? " active" : ""}`;
+    item.style.setProperty("--category-color", category.color);
+    item.innerHTML = `
+      <button class="category-select" type="button">
+        <span class="category-cover">
+          <img src="${escapeAttribute(getCategoryCover(category))}" alt="" />
+        </span>
+        <span>
+          <strong>${escapeHtml(category.name)}</strong>
+          <small>${count} 个愿望</small>
+        </span>
+      </button>
+      <span class="category-actions">
+        <label class="mini-icon-button" title="修改封面">
+          <span aria-hidden="true">图</span>
+          <input class="category-cover-input" type="file" accept="image/*" />
+        </label>
+        <button class="mini-icon-button category-delete-button" type="button" title="删除分类" aria-label="删除分类">×</button>
       </span>
     `;
-    button.addEventListener("click", () => {
+    item.querySelector(".category-select").addEventListener("click", () => {
       state.activeCategoryId = category.id;
       state.activeWishId = state.wishes.find((wish) => wish.categoryId === category.id)?.id ?? null;
       commit();
     });
-    categoryList.append(button);
+    item.querySelector(".category-cover-input").addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        category.cover = await resolveImageValue(file, getCategoryCover(category));
+        commit();
+        showBackupStatus(`“${category.name}”的封面已更新。`);
+      } catch (error) {
+        showBackupStatus(`分类封面上传失败：${error.message}`);
+      }
+    });
+    item.querySelector(".category-delete-button").addEventListener("click", () => deleteCategory(category));
+    categoryList.append(item);
   });
+}
+
+function deleteCategory(category) {
+  if (state.categories.length <= 1) {
+    showBackupStatus("至少保留一个分类，暂时不能删除最后一个分类。");
+    return;
+  }
+  const count = state.wishes.filter((wish) => wish.categoryId === category.id).length;
+  const message = count
+    ? `删除“${category.name}”会同时删除其中的 ${count} 个愿望，确定继续吗？`
+    : `确定删除“${category.name}”这个分类吗？`;
+  if (!window.confirm(message)) return;
+  state.categories = state.categories.filter((item) => item.id !== category.id);
+  state.wishes = state.wishes.filter((wish) => wish.categoryId !== category.id);
+  if (state.activeCategoryId === category.id) {
+    state.activeCategoryId = state.categories[0].id;
+    state.activeWishId = state.wishes.find((wish) => wish.categoryId === state.activeCategoryId)?.id || null;
+  }
+  commit();
+  showBackupStatus(`已删除“${category.name}”。`);
 }
 
 function renderWishes(wishes) {
@@ -610,7 +650,7 @@ function renderWishes(wishes) {
         <span class="wish-meta">
           <span class="tag">${wish.fulfilledAt ? "已实现" : "想实现"}</span>
           <span class="tag priority">${escapeHtml(getWishPriority(wish))}</span>
-          ${wish.reminderAt ? `<span class="tag reminder">${escapeHtml(formatReminder(wish.reminderAt))}</span>` : ""}
+          ${wish.wishAt ? `<span class="tag reminder">许愿于 ${escapeHtml(formatWishAt(wish.wishAt))}</span>` : ""}
           <span class="tag">${wish.memory ? "有心得" : "待记录"}</span>
           ${wish.createdBy ? `<span class="tag person-tag">添加：${escapeHtml(wish.createdBy)}</span>` : ""}
           ${wish.preparedBy ? `<span class="tag person-tag">准备：${escapeHtml(wish.preparedBy)}</span>` : ""}
@@ -674,8 +714,8 @@ function renderDetail() {
         <input data-field="fulfilledAt" type="date" value="${escapeAttribute(wish.fulfilledAt)}" />
       </label>
       <label>
-        <span>提醒时间</span>
-        <input data-field="reminderAt" type="date" value="${escapeAttribute(wish.reminderAt || "")}" />
+        <span>许愿时间</span>
+        <input data-field="wishAt" type="date" value="${escapeAttribute(wish.wishAt || "")}" />
       </label>
       <label>
         <span>惦记程度</span>
@@ -706,6 +746,14 @@ function renderDetail() {
         </div>
         ${wish.fulfilledAt ? `<button class="backup-button" id="markFulfilledButton" type="button">修改实现记录</button>` : `<button class="ink-button" id="markFulfilledButton" type="button">＋ 标记已实现</button>`}
       </div>
+      <div class="wish-actions">
+        <label>
+          <span>移动到分类</span>
+          <select id="moveWishCategory">${renderCategoryOptions(wish.categoryId)}</select>
+        </label>
+        <button class="backup-button" id="moveWishButton" type="button">移动愿望</button>
+        <button class="danger-button" id="deleteWishButton" type="button">删除愿望</button>
+      </div>
     </div>
   `;
 
@@ -727,7 +775,7 @@ function renderDetail() {
           ? `实现于 ${wish.fulfilledAt}`
           : "还在等待一个合适的时刻";
       }
-      if (event.target.dataset.field === "title" || event.target.dataset.field === "fulfilledAt" || event.target.dataset.field === "reminderAt" || event.target.dataset.field === "createdBy" || event.target.dataset.field === "preparedBy") {
+      if (event.target.dataset.field === "title" || event.target.dataset.field === "fulfilledAt" || event.target.dataset.field === "wishAt" || event.target.dataset.field === "createdBy" || event.target.dataset.field === "preparedBy") {
         renderWishes(state.wishes.filter((item) => item.categoryId === state.activeCategoryId));
         renderMemories();
         const credits = detailPanel.querySelector(".detail-title small");
@@ -760,6 +808,38 @@ function renderDetail() {
   });
 
   detailPanel.querySelector("#markFulfilledButton")?.addEventListener("click", () => openFulfillDialog(wish));
+  detailPanel.querySelector("#moveWishButton")?.addEventListener("click", () => {
+    const targetCategoryId = detailPanel.querySelector("#moveWishCategory").value;
+    moveWishToCategory(wish, targetCategoryId);
+  });
+  detailPanel.querySelector("#deleteWishButton")?.addEventListener("click", () => deleteWish(wish));
+}
+
+function renderCategoryOptions(selectedId) {
+  return state.categories
+    .map((category) => `<option value="${escapeAttribute(category.id)}"${category.id === selectedId ? " selected" : ""}>${escapeHtml(category.name)}</option>`)
+    .join("");
+}
+
+function moveWishToCategory(wish, categoryId) {
+  const category = state.categories.find((item) => item.id === categoryId);
+  if (!category || wish.categoryId === categoryId) {
+    showBackupStatus("这个愿望已经在当前分类里了。");
+    return;
+  }
+  wish.categoryId = categoryId;
+  state.activeCategoryId = categoryId;
+  state.activeWishId = wish.id;
+  commit();
+  showBackupStatus(`已把“${wish.title}”移动到“${category.name}”。`);
+}
+
+function deleteWish(wish) {
+  if (!window.confirm(`确定删除“${wish.title}”这个愿望吗？删除后无法从愿望箱恢复。`)) return;
+  state.wishes = state.wishes.filter((item) => item.id !== wish.id);
+  state.activeWishId = state.wishes.find((item) => item.categoryId === state.activeCategoryId)?.id || null;
+  commit();
+  showBackupStatus(`已删除“${wish.title}”。`);
 }
 
 function openFulfillDialog(wish) {
@@ -871,7 +951,7 @@ function showWishForm() {
       title: data.get("title").trim(),
       note: data.get("note").trim(),
       fulfilledAt: data.get("fulfilledAt"),
-      reminderAt: data.get("reminderAt"),
+      wishAt: data.get("wishAt"),
       privatePrep: data.get("privatePrep").trim(),
       diary: "",
       priority: data.get("priority") || "最近惦记",
@@ -966,7 +1046,7 @@ function renderMemories() {
           ${wish.createdBy ? `<span class="tag person-tag">添加：${escapeHtml(wish.createdBy)}</span>` : ""}
           ${wish.preparedBy ? `<span class="tag person-tag">准备：${escapeHtml(wish.preparedBy)}</span>` : ""}
           ${wish.fulfilledBy ? `<span class="tag person-tag">实现：${escapeHtml(wish.fulfilledBy)}</span>` : ""}
-          ${wish.reminderAt ? `<span class="tag reminder">曾提醒 ${escapeHtml(formatReminder(wish.reminderAt))}</span>` : ""}
+          ${wish.wishAt ? `<span class="tag reminder">许愿于 ${escapeHtml(formatWishAt(wish.wishAt))}</span>` : ""}
         </span>
       </div>
     `;
@@ -1003,7 +1083,7 @@ function normalizeState(nextState) {
     ...wish,
     priority: PRIORITIES.includes(wish.priority) ? wish.priority : "最近惦记",
     image: wish.image || DEFAULT_COVER,
-    reminderAt: wish.reminderAt || "",
+    wishAt: wish.wishAt || wish.reminderAt || "",
     privatePrep: wish.privatePrep || "",
     diary: wish.diary || "",
     createdBy: wish.createdBy || "最初的愿望收集者",
@@ -1025,7 +1105,7 @@ function getWishStory(wish) {
   return stories.join("\n\n") || wish.note || "";
 }
 
-function formatReminder(value) {
+function formatWishAt(value) {
   if (!value) return "";
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return value;
