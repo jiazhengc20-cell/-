@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>咕噜咕噜的愿望箱</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="gallery-rail" aria-label="Mood board">
+        <img src="outputs/01-private-glow-zine-cool-tone.png" alt="" />
+        <img src="outputs/08-wrapped-light-bouquet-zine.png" alt="" />
+        <img src="outputs/07-under-one-light-zine-v2-full-head.png" alt="" />
+      </aside>
+
+      <section class="workspace" aria-label="女朋友愿望清单工作台">
+        <header class="topbar">
+          <div>
+            <p class="date-line" id="todayLabel"></p>
+            <h1>咕噜咕噜的愿望箱</h1>
+          </div>
+          <button class="ink-button" id="newWishTopButton" type="button">
+            <span aria-hidden="true">＋</span>
+            新愿望
+          </button>
+        </header>
+
+        <div class="hero-panel">
+          <div class="hero-copy">
+            <div class="hero-stats" aria-label="愿望统计">
+              <span><strong id="totalWishes">0</strong> 个愿望</span>
+              <span><strong id="doneWishes">0</strong> 个已实现</span>
+              <span><strong id="memoryCount">0</strong> 条心得</span>
+            </div>
+            <div class="backup-tools" aria-label="进度保存">
+              <button class="backup-button" id="exportProgressButton" type="button">导出进度</button>
+              <button class="backup-button" id="importProgressButton" type="button">导入进度</button>
+              <button class="backup-button cloud" id="cloudProgressButton" type="button">保存到云端</button>
+              <input id="importProgressFile" type="file" accept="application/json,.json" hidden />
+            </div>
+            <p class="backup-status" id="backupStatus" aria-live="polite"></p>
+            <div class="view-switch" aria-label="视图切换">
+              <button class="view-button active" id="categoryViewButton" type="button">分类工作台</button>
+              <button class="view-button" id="memoryViewButton" type="button">回忆册</button>
+            </div>
+          </div>
+          <div class="paper-slip">
+            <span>private wish log</span>
+            <strong id="activeCategoryTitle">旅游</strong>
+          </div>
+        </div>
+
+        <div class="board">
+          <nav class="category-panel" aria-label="愿望分类">
+            <div class="panel-head">
+              <h2>分类</h2>
+              <button class="icon-button" id="addCategoryButton" type="button" aria-label="添加分类">
+                <span aria-hidden="true">＋</span>
+              </button>
+            </div>
+            <div class="category-list" id="categoryList"></div>
+            <form class="quick-form hidden" id="categoryForm">
+              <input id="categoryName" type="text" placeholder="比如：电影、花、纪念日" maxlength="12" />
+              <label class="mini-field">
+                分类颜色
+                <input id="categoryColor" type="color" value="#1640df" />
+              </label>
+              <label class="mini-field">
+                分类封面
+                <input id="categoryCover" type="file" accept="image/*" />
+              </label>
+              <button type="submit">保存</button>
+            </form>
+          </nav>
+
+          <section class="wish-panel" aria-label="愿望词条">
+            <div class="panel-head">
+              <h2>愿望词条</h2>
+              <button class="text-button" id="addWishButton" type="button">添加一个</button>
+            </div>
+            <div class="wish-list" id="wishList"></div>
+          </section>
+
+          <aside class="detail-panel" id="detailPanel" aria-label="愿望详情">
+            <div class="empty-detail">
+              <span>select a wish</span>
+              <p>选中一个愿望，就可以记录实现的时间、照片和心得。</p>
+            </div>
+          </aside>
+        </div>
+
+        <section class="memory-board hidden" id="memoryBoard" aria-label="愿望回忆册">
+          <div class="panel-head">
+            <h2>回忆册</h2>
+            <p class="cover-hint">已实现的愿望会自动来到这里，像一页页完成后的生活小记。</p>
+          </div>
+          <div class="memory-list" id="memoryList"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="wishFormTemplate">
+      <form class="wish-editor" id="wishEditor">
+        <label>
+          愿望标题
+          <input name="title" type="text" placeholder="她想去海边看一次日落" maxlength="40" required />
+        </label>
+        <label>
+          小备注
+          <textarea name="note" placeholder="地点、预算、她提起它时的语气，或者你想准备的小心思。"></textarea>
+        </label>
+        <label>
+          实现时间
+          <input name="fulfilledAt" type="date" />
+        </label>
+        <label>
+          提醒时间
+          <input name="reminderAt" type="date" />
+        </label>
+        <label>
+          惦记程度
+          <select name="priority">
+            <option value="小小念头">小小念头</option>
+            <option value="最近惦记" selected>最近惦记</option>
+            <option value="非常想实现">非常想实现</option>
+            <option value="值得认真准备">值得认真准备</option>
+          </select>
+        </label>
+        <label class="cover-picker">
+          愿望封面
+          <span class="cover-preview">
+            <img id="newWishCoverPreview" src="outputs/05-sip-wood-hush-zine.png" alt="" />
+            <em>可以先用默认拼贴图，也可以上传她相关的照片。</em>
+          </span>
+          <input id="newWishCover" name="cover" type="file" accept="image/*" />
+        </label>
+        <label class="private-prep">
+          私密准备区
+          <textarea name="privatePrep" placeholder="实现前只给你看：预算、链接、准备计划、惊喜步骤。"></textarea>
+          <em>实现前默认不公开；实现之后可以整理成回忆日记。</em>
+        </label>
+        <button type="submit">收进清单</button>
+      </form>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
