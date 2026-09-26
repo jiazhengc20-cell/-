@@ -81,6 +81,8 @@ let cloudChannel = null;
 let currentSession = null;
 let currentProfileName = "";
 let fulfillingWish = null;
+let lastLocalCloudWriteAt = 0;
+let pendingRemoteRefresh = false;
 const cloudReady = Boolean(
   window.supabase &&
   !SUPABASE_URL.startsWith("YOUR_") &&
@@ -148,6 +150,15 @@ document.querySelector("#cancelFulfillButton").addEventListener("click", closeFu
 document.querySelector("#closeFulfillDialog").addEventListener("click", closeFulfillDialog);
 fulfilledPhotoInput.addEventListener("change", previewFulfilledPhoto);
 fulfillForm.addEventListener("submit", submitFulfilledWish);
+
+detailPanel.addEventListener("focusout", () => {
+  window.setTimeout(async () => {
+    if (detailPanel.contains(document.activeElement)) return;
+    if (!pendingRemoteRefresh) return;
+    pendingRemoteRefresh = false;
+    await loadWishData();
+  }, 0);
+});
 
 if (!cloudReady) {
   authStatus.textContent = "填入 Supabase 配置后即可开启双人同步";
@@ -403,6 +414,7 @@ async function saveWishDataToCloud() {
     showBackupStatus(`云端保存失败：${error.message}`);
     return;
   }
+  lastLocalCloudWriteAt = Date.now();
   showBackupStatus("已保存到云端，另一台设备会自动同步。");
 }
 
@@ -468,6 +480,13 @@ function subscribeWishData() {
   cloudChannel = supabaseClient
     .channel("wish-data-sync")
     .on("postgres_changes", { event: "*", schema: "public", table: "wish_data" }, async () => {
+      const editingDetail = detailPanel.contains(document.activeElement);
+      if (Date.now() - lastLocalCloudWriteAt < 2500) return;
+      if (editingDetail) {
+        pendingRemoteRefresh = true;
+        showBackupStatus("另一台设备有更新，完成当前编辑后会同步。");
+        return;
+      }
       await loadWishData();
     })
     .subscribe();
