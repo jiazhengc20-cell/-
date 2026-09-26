@@ -36,6 +36,10 @@
             <input id="authPassword" type="password" placeholder="密码" autocomplete="current-password" />
             <button class="backup-button" id="authLoginButton" type="button">登录</button>
             <button class="backup-button" id="authLogoutButton" type="button" hidden>退出</button>
+            <div class="profile-controls" id="profileControls" hidden>
+              <input id="usernameInput" type="text" placeholder="设置用户名" maxlength="16" autocomplete="nickname" />
+              <button class="backup-button" id="saveUsernameButton" type="button">保存名字</button>
+            </div>
           </div>
         </section>
 
@@ -156,6 +160,40 @@
         <button type="submit">收进清单</button>
       </form>
     </template>
+
+    <dialog class="fulfill-dialog" id="fulfillDialog" aria-labelledby="fulfillDialogTitle">
+      <form class="fulfill-form" id="fulfillForm" method="dialog">
+        <div class="dialog-head">
+          <div>
+            <span class="dialog-kicker">wish completed</span>
+            <h2 id="fulfillDialogTitle">把这件小事收进回忆</h2>
+          </div>
+          <button class="dialog-close" id="closeFulfillDialog" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="dialog-intro">填写实现后的照片和故事，确认后它会出现在回忆册里。</p>
+        <label>
+          实现日期
+          <input id="fulfilledDateInput" type="date" required />
+        </label>
+        <label class="cover-picker">
+          实现后的照片
+          <span class="cover-preview">
+            <img id="fulfilledPhotoPreview" src="outputs/05-sip-wood-hush-zine.png" alt="" />
+            <em>这张照片会作为回忆册里的纪念图。</em>
+          </span>
+          <input id="fulfilledPhotoInput" type="file" accept="image/*" />
+        </label>
+        <label>
+          文字故事
+          <textarea id="fulfilledStoryInput" placeholder="那天发生了什么？她说了什么？把这一次实现写下来。" required></textarea>
+        </label>
+        <p class="fulfill-note">确认后，当前幕后准备会作为“幕后回顾”收进这篇回忆。</p>
+        <div class="dialog-actions">
+          <button class="backup-button" id="cancelFulfillButton" type="button">先不保存</button>
+          <button class="ink-button" type="submit">确认实现</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>

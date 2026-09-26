@@ -29,6 +29,11 @@ const seedState = {
       diary: "",
       priority: "最近惦记",
       memory: "准备挑一个不用赶行程的周末，只做散步、拍照、喝热的东西。",
+      createdBy: "最初的愿望收集者",
+      preparedBy: "",
+      revealedPrep: "",
+      memoryImage: "",
+      fulfilledBy: "",
       image: "outputs/06-slow-window-light-zine.png",
     },
     {
@@ -42,6 +47,11 @@ const seedState = {
       diary: "那天阳光靠在窗框上，抹茶的冰块慢慢化开。她说这个绿色很像夏天快结束的时候，于是这件小事就被收进来了。",
       priority: "非常想实现",
       memory: "那天她一直盯着杯子里的冰块，说这个绿色很像夏天快结束的时候。",
+      createdBy: "最初的愿望收集者",
+      preparedBy: "",
+      revealedPrep: "",
+      memoryImage: "",
+      fulfilledBy: "",
       image: "outputs/02-glass-light-stillness-zine.png",
     },
     {
@@ -55,6 +65,11 @@ const seedState = {
       diary: "",
       priority: "小小念头",
       memory: "",
+      createdBy: "最初的愿望收集者",
+      preparedBy: "",
+      revealedPrep: "",
+      memoryImage: "",
+      fulfilledBy: "",
       image: "outputs/04-between-pages-zine.png",
     },
   ],
@@ -63,6 +78,9 @@ const seedState = {
 let state = loadState();
 let cloudSaveTimer = null;
 let cloudChannel = null;
+let currentSession = null;
+let currentProfileName = "";
+let fulfillingWish = null;
 const cloudReady = Boolean(
   window.supabase &&
   !SUPABASE_URL.startsWith("YOUR_") &&
@@ -95,6 +113,15 @@ const authEmail = document.querySelector("#authEmail");
 const authPassword = document.querySelector("#authPassword");
 const authLoginButton = document.querySelector("#authLoginButton");
 const authLogoutButton = document.querySelector("#authLogoutButton");
+const profileControls = document.querySelector("#profileControls");
+const usernameInput = document.querySelector("#usernameInput");
+const saveUsernameButton = document.querySelector("#saveUsernameButton");
+const fulfillDialog = document.querySelector("#fulfillDialog");
+const fulfillForm = document.querySelector("#fulfillForm");
+const fulfilledDateInput = document.querySelector("#fulfilledDateInput");
+const fulfilledPhotoInput = document.querySelector("#fulfilledPhotoInput");
+const fulfilledPhotoPreview = document.querySelector("#fulfilledPhotoPreview");
+const fulfilledStoryInput = document.querySelector("#fulfilledStoryInput");
 
 document.querySelector("#todayLabel").textContent = new Intl.DateTimeFormat("zh-CN", {
   dateStyle: "full",
@@ -116,6 +143,11 @@ importProgressFile.addEventListener("change", importProgress);
 
 authLoginButton.addEventListener("click", signIn);
 authLogoutButton.addEventListener("click", signOut);
+saveUsernameButton.addEventListener("click", saveUsername);
+document.querySelector("#cancelFulfillButton").addEventListener("click", closeFulfillDialog);
+document.querySelector("#closeFulfillDialog").addEventListener("click", closeFulfillDialog);
+fulfilledPhotoInput.addEventListener("change", previewFulfilledPhoto);
+fulfillForm.addEventListener("submit", submitFulfilledWish);
 
 if (!cloudReady) {
   authStatus.textContent = "填入 Supabase 配置后即可开启双人同步";
@@ -191,6 +223,7 @@ async function initialiseCloudSync() {
   const { data } = await supabaseClient.auth.getSession();
   updateAuthUI(data.session);
   if (data.session) {
+    await loadUserProfile();
     await loadWishData();
     subscribeWishData();
   }
@@ -198,6 +231,7 @@ async function initialiseCloudSync() {
     updateAuthUI(session);
     if (session) {
       window.setTimeout(async () => {
+        await loadUserProfile();
         await loadWishData();
         subscribeWishData();
       }, 0);
@@ -209,6 +243,7 @@ async function initialiseCloudSync() {
 }
 
 function updateAuthUI(session) {
+  currentSession = session;
   const loggedIn = Boolean(session);
   authStatus.textContent = loggedIn
     ? `已登录：${session.user.email}`
@@ -217,6 +252,53 @@ function updateAuthUI(session) {
   authPassword.hidden = loggedIn;
   authLoginButton.hidden = loggedIn;
   authLogoutButton.hidden = !loggedIn;
+  profileControls.hidden = !loggedIn;
+  if (!loggedIn) {
+    currentProfileName = "";
+    usernameInput.value = "";
+  }
+}
+
+async function loadUserProfile() {
+  const user = await getCloudUser();
+  if (!user) return;
+  const { data, error } = await supabaseClient
+    .from("user_profiles")
+    .select("display_name")
+    .eq("user_id", user.id)
+    .limit(1);
+  if (error) {
+    showBackupStatus(`用户名读取失败：${error.message}`);
+    currentProfileName = user.email?.split("@")[0] || "愿望箱成员";
+    usernameInput.value = currentProfileName;
+    return;
+  }
+  currentProfileName = data?.[0]?.display_name || user.email?.split("@")[0] || "愿望箱成员";
+  usernameInput.value = currentProfileName;
+}
+
+async function saveUsername() {
+  const user = await getCloudUser();
+  const name = usernameInput.value.trim();
+  if (!user || !name) {
+    showBackupStatus("请先登录并填写用户名。");
+    return;
+  }
+  saveUsernameButton.disabled = true;
+  const { error } = await supabaseClient
+    .from("user_profiles")
+    .upsert({ user_id: user.id, display_name: name, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  saveUsernameButton.disabled = false;
+  if (error) {
+    showBackupStatus(`用户名保存失败：${error.message}`);
+    return;
+  }
+  currentProfileName = name;
+  showBackupStatus(`已记住你是“${name}”。`);
+}
+
+function getCurrentProfileName() {
+  return currentProfileName || currentSession?.user?.email?.split("@")[0] || "本机成员";
 }
 
 async function signIn() {
@@ -234,6 +316,11 @@ async function signIn() {
 
 async function signOut() {
   await supabaseClient.auth.signOut();
+  state.wishes.forEach((wish) => {
+    wish.privatePrep = "";
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  render();
 }
 
 async function getCloudUser() {
@@ -259,25 +346,38 @@ async function loadWishData() {
   if (!data) {
     const { error: insertError } = await supabaseClient
       .from("wish_data")
-      .insert({ title: CLOUD_ROW_TITLE, data: state });
+      .insert({ title: CLOUD_ROW_TITLE, data: getSharedState() });
     if (insertError) {
       authStatus.textContent = `云端初始化失败：${insertError.message}`;
       return;
     }
+    await savePrivateNotesToCloud();
+    render();
     showBackupStatus("云端还没有愿望箱，已用本机内容初始化。");
     return;
   }
   if (data?.data?.categories && data?.data?.wishes) {
     const cloudState = normalizeState(data.data);
+    const localPrivateNotes = new Map(
+      state.wishes
+        .filter((wish) => (wish.privatePrep || "").trim())
+        .map((wish) => [wish.id, wish.privatePrep]),
+    );
     const localHasContent = state.categories.length > 0 || state.wishes.length > 0;
     const cloudIsEmpty = cloudState.categories.length === 0 && cloudState.wishes.length === 0;
     if (cloudIsEmpty && localHasContent) {
       await saveWishDataToCloud();
+      await savePrivateNotesToCloud();
+      render();
       showBackupStatus("云端还是空的，已先把这台设备的愿望箱上传到云端。");
       return;
     }
     state = normalizeState({ ...cloudState, activeCategoryId: state.activeCategoryId, activeView: state.activeView });
+    state.wishes.forEach((wish) => {
+      wish.privatePrep = "";
+    });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    await loadPrivateNotes(localPrivateNotes);
     render();
     showBackupStatus("已从云端同步最新愿望箱。");
   }
@@ -286,7 +386,10 @@ async function loadWishData() {
 function scheduleCloudSave() {
   if (!cloudReady) return;
   window.clearTimeout(cloudSaveTimer);
-  cloudSaveTimer = window.setTimeout(saveWishDataToCloud, 500);
+  cloudSaveTimer = window.setTimeout(async () => {
+    await saveWishDataToCloud();
+    await savePrivateNotesToCloud();
+  }, 500);
 }
 
 async function saveWishDataToCloud() {
@@ -294,13 +397,70 @@ async function saveWishDataToCloud() {
   if (!user) return;
   const { error } = await supabaseClient
     .from("wish_data")
-    .update({ data: state, updated_by: user.id, updated_at: new Date().toISOString() })
+    .update({ data: getSharedState(), updated_by: user.id, updated_at: new Date().toISOString() })
     .eq("title", CLOUD_ROW_TITLE);
   if (error) {
     showBackupStatus(`云端保存失败：${error.message}`);
     return;
   }
   showBackupStatus("已保存到云端，另一台设备会自动同步。");
+}
+
+function getSharedState() {
+  const sharedState = structuredClone(state);
+  sharedState.wishes = sharedState.wishes.map((wish) => ({ ...wish, privatePrep: "" }));
+  return sharedState;
+}
+
+async function loadPrivateNotes(localPrivateNotes = new Map()) {
+  const user = await getCloudUser();
+  if (!user) return;
+  const { data, error } = await supabaseClient
+    .from("private_wish_notes")
+    .select("wish_id, private_prep")
+    .eq("user_id", user.id);
+  if (error) {
+    showBackupStatus(`幕后准备区暂时无法读取：${error.message}`);
+    return;
+  }
+  if (!(data || []).length && localPrivateNotes.size) {
+    state.wishes.forEach((wish) => {
+      wish.privatePrep = localPrivateNotes.get(wish.id) || "";
+    });
+    await savePrivateNotesToCloud();
+    return;
+  }
+  const notes = new Map((data || []).map((note) => [note.wish_id, note.private_prep || ""]));
+  state.wishes.forEach((wish) => {
+    wish.privatePrep = notes.get(wish.id) || "";
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+async function savePrivateNotesToCloud() {
+  const user = await getCloudUser();
+  if (!user) return;
+  const notes = state.wishes
+    .filter((wish) => (wish.privatePrep || "").trim())
+    .map((wish) => ({
+      wish_id: wish.id,
+      user_id: user.id,
+      private_prep: wish.privatePrep.trim(),
+      updated_at: new Date().toISOString(),
+    }));
+  const { error: clearError } = await supabaseClient
+    .from("private_wish_notes")
+    .delete()
+    .eq("user_id", user.id);
+  if (clearError) {
+    showBackupStatus(`幕后准备区保存失败：${clearError.message}`);
+    return;
+  }
+  if (!notes.length) return;
+  const { error } = await supabaseClient
+    .from("private_wish_notes")
+    .upsert(notes, { onConflict: "wish_id" });
+  if (error) showBackupStatus(`幕后准备区保存失败：${error.message}`);
 }
 
 function subscribeWishData() {
@@ -433,6 +593,8 @@ function renderWishes(wishes) {
           <span class="tag priority">${escapeHtml(getWishPriority(wish))}</span>
           ${wish.reminderAt ? `<span class="tag reminder">${escapeHtml(formatReminder(wish.reminderAt))}</span>` : ""}
           <span class="tag">${wish.memory ? "有心得" : "待记录"}</span>
+          ${wish.createdBy ? `<span class="tag person-tag">添加：${escapeHtml(wish.createdBy)}</span>` : ""}
+          ${wish.preparedBy ? `<span class="tag person-tag">准备：${escapeHtml(wish.preparedBy)}</span>` : ""}
         </span>
       </span>
     `;
@@ -451,12 +613,28 @@ function renderDetail() {
     return;
   }
 
+  const privatePrepMarkup = currentSession
+    ? `
+      <label class="private-prep">
+        <span>幕后准备区 · 仅你可见</span>
+        <textarea data-field="privatePrep" placeholder="预算、链接、准备计划、惊喜步骤。">${escapeHtml(wish.privatePrep || "")}</textarea>
+        <em>这段内容只会保存到当前登录账号，另一位账号无法读取。</em>
+      </label>
+    `
+    : `
+      <div class="private-prep private-locked">
+        <span>幕后准备区</span>
+        <p>登录后才能查看和编辑；内容只属于当前账号。</p>
+      </div>
+    `;
+
     detailPanel.innerHTML = `
     <div class="detail-hero">
       <img src="${escapeAttribute(getWishCover(wish))}" alt="" />
       <div class="detail-title">
         <h2>${escapeHtml(wish.title)}</h2>
         <p>${wish.fulfilledAt ? `实现于 ${escapeHtml(wish.fulfilledAt)}` : "还在等待一个合适的时刻"}</p>
+        <small>添加：${escapeHtml(wish.createdBy || "愿望箱成员")}${wish.preparedBy ? ` · 准备：${escapeHtml(wish.preparedBy)}` : ""}</small>
       </div>
     </div>
     <div class="field-stack">
@@ -486,11 +664,7 @@ function renderDetail() {
         <span>心得</span>
         <textarea data-field="memory" placeholder="实现那天发生了什么，她笑了几次，你想记住什么。">${escapeHtml(wish.memory)}</textarea>
       </label>
-      <label class="private-prep">
-        <span>私密准备区</span>
-        <textarea data-field="privatePrep" placeholder="实现前只给你看：预算、链接、准备计划、惊喜步骤。">${escapeHtml(wish.privatePrep || "")}</textarea>
-        <em>${wish.fulfilledAt ? "已实现后，这里可以作为回忆日记的素材。" : "实现前默认不进入回忆册，也不作为公开内容展示。"}</em>
-      </label>
+      ${privatePrepMarkup}
       <label class="diary-field">
         <span>实现后的照片 + 文字故事</span>
         <textarea data-field="diary" placeholder="实现后写成一篇小小日记，回忆册会优先展示这里。">${escapeHtml(wish.diary || "")}</textarea>
@@ -502,13 +676,25 @@ function renderDetail() {
           <input id="imageUpload" type="file" accept="image/*" />
         </label>
       </div>
+      <div class="fulfill-toolbar">
+        <div>
+          <strong>${wish.fulfilledAt ? "这件愿望已经实现" : "实现这件愿望"}</strong>
+          <span>${wish.fulfilledAt ? `实现于 ${escapeHtml(wish.fulfilledAt)} · ${escapeHtml(wish.fulfilledBy || "愿望箱成员")}` : "填写一张照片和一段文字，把它收进回忆册。"}</span>
+        </div>
+        ${wish.fulfilledAt ? `<span class="done-stamp">已实现</span>` : `<button class="ink-button" id="markFulfilledButton" type="button">＋ 标记已实现</button>`}
+      </div>
     </div>
   `;
 
   detailPanel.querySelectorAll("[data-field]").forEach((input) => {
     input.addEventListener("input", (event) => {
       wish[event.target.dataset.field] = event.target.value;
+      if (event.target.dataset.field === "privatePrep" && currentSession) {
+        wish.preparedBy = getCurrentProfileName();
+        wish.preparedById = currentSession.user.id;
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      scheduleCloudSave();
       renderStats();
       if (event.target.dataset.field === "title") {
         detailPanel.querySelector(".detail-title h2").textContent = wish.title;
@@ -545,6 +731,72 @@ function renderDetail() {
       showBackupStatus(`封面上传失败：${error.message}`);
     }
   });
+
+  detailPanel.querySelector("#markFulfilledButton")?.addEventListener("click", () => openFulfillDialog(wish));
+}
+
+function openFulfillDialog(wish) {
+  fulfillingWish = wish;
+  fulfilledDateInput.value = wish.fulfilledAt || new Date().toISOString().slice(0, 10);
+  fulfilledStoryInput.value = wish.diary || "";
+  fulfilledPhotoInput.value = "";
+  fulfilledPhotoPreview.src = wish.memoryImage || getWishCover(wish);
+  if (typeof fulfillDialog.showModal === "function") {
+    fulfillDialog.showModal();
+  } else {
+    fulfillDialog.setAttribute("open", "");
+  }
+  fulfilledStoryInput.focus();
+}
+
+function closeFulfillDialog() {
+  fulfillingWish = null;
+  fulfillForm.reset();
+  if (fulfillDialog.open) fulfillDialog.close();
+  else fulfillDialog.removeAttribute("open");
+}
+
+function previewFulfilledPhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    fulfilledPhotoPreview.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitFulfilledWish(event) {
+  event.preventDefault();
+  if (!fulfillingWish) return;
+  const wish = fulfillingWish;
+  const submitButton = fulfillForm.querySelector("button[type='submit']");
+  const story = fulfilledStoryInput.value.trim();
+  if (!story) return;
+  submitButton.disabled = true;
+  try {
+    const photoFile = fulfilledPhotoInput.files?.[0];
+    const memoryImage = photoFile
+      ? await resolveImageValue(photoFile, wish.memoryImage || getWishCover(wish))
+      : wish.memoryImage || getWishCover(wish);
+    wish.fulfilledAt = fulfilledDateInput.value;
+    wish.diary = story;
+    wish.memoryImage = memoryImage;
+    wish.fulfilledBy = getCurrentProfileName();
+    wish.revealedPrep = wish.privatePrep || wish.revealedPrep || "";
+    if (wish.revealedPrep && !wish.preparedBy) {
+      wish.preparedBy = getCurrentProfileName();
+      wish.preparedById = currentSession?.user?.id || "";
+    }
+    state.activeView = "memories";
+    closeFulfillDialog();
+    commit();
+    showBackupStatus("这件愿望已实现，照片、故事和幕后回顾都收进回忆册了。");
+  } catch (error) {
+    showBackupStatus(`回忆保存失败：${error.message}`);
+  } finally {
+    submitButton.disabled = false;
+  }
 }
 
 function showWishForm() {
@@ -596,6 +848,13 @@ function showWishForm() {
       diary: "",
       priority: data.get("priority") || "最近惦记",
       memory: "",
+      createdBy: getCurrentProfileName(),
+      createdById: currentSession?.user?.id || "",
+      preparedBy: data.get("privatePrep").trim() ? getCurrentProfileName() : "",
+      preparedById: data.get("privatePrep").trim() ? currentSession?.user?.id || "" : "",
+      revealedPrep: "",
+      memoryImage: "",
+      fulfilledBy: "",
       image,
     };
     if (!wish.title) return;
@@ -668,7 +927,7 @@ function renderMemories() {
     const article = document.createElement("article");
     article.className = "memory-card";
     article.innerHTML = `
-      <img src="${escapeAttribute(getWishCover(wish))}" alt="" />
+      <img src="${escapeAttribute(wish.memoryImage || getWishCover(wish))}" alt="" />
       <div class="memory-card-body">
         <strong>${escapeHtml(wish.title)}</strong>
         <p>${escapeHtml(getWishStory(wish) || "这一天已经被收进回忆册。")}</p>
@@ -676,6 +935,9 @@ function renderMemories() {
           <span class="tag">${escapeHtml(category?.name ?? "未分类")}</span>
           <span class="tag">${escapeHtml(wish.fulfilledAt)}</span>
           <span class="tag priority">${escapeHtml(getWishPriority(wish))}</span>
+          ${wish.createdBy ? `<span class="tag person-tag">添加：${escapeHtml(wish.createdBy)}</span>` : ""}
+          ${wish.preparedBy ? `<span class="tag person-tag">准备：${escapeHtml(wish.preparedBy)}</span>` : ""}
+          ${wish.fulfilledBy ? `<span class="tag person-tag">实现：${escapeHtml(wish.fulfilledBy)}</span>` : ""}
           ${wish.reminderAt ? `<span class="tag reminder">曾提醒 ${escapeHtml(formatReminder(wish.reminderAt))}</span>` : ""}
         </span>
       </div>
@@ -716,12 +978,23 @@ function normalizeState(nextState) {
     reminderAt: wish.reminderAt || "",
     privatePrep: wish.privatePrep || "",
     diary: wish.diary || "",
+    createdBy: wish.createdBy || "最初的愿望收集者",
+    createdById: wish.createdById || "",
+    preparedBy: wish.preparedBy || "",
+    preparedById: wish.preparedById || "",
+    revealedPrep: wish.revealedPrep || "",
+    memoryImage: wish.memoryImage || "",
+    fulfilledBy: wish.fulfilledBy || "",
   }));
   return normalized;
 }
 
 function getWishStory(wish) {
-  return wish.diary || wish.memory || wish.note || "";
+  const stories = [];
+  if (wish.diary) stories.push(`照片故事：${wish.diary}`);
+  if (wish.memory && wish.memory !== wish.diary) stories.push(`心得：${wish.memory}`);
+  if (wish.revealedPrep) stories.push(`幕后回顾：${wish.revealedPrep}`);
+  return stories.join("\n\n") || wish.note || "";
 }
 
 function formatReminder(value) {

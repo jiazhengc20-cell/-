@@ -77,3 +77,60 @@ begin
   end if;
 end
 $$;
+
+-- 私密幕后准备：只允许当前登录用户读取自己的记录。
+create table if not exists public.private_wish_notes (
+  wish_id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  private_prep text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+alter table public.private_wish_notes enable row level security;
+
+drop policy if exists "users can read their own private wish notes" on public.private_wish_notes;
+drop policy if exists "users can create their own private wish notes" on public.private_wish_notes;
+drop policy if exists "users can update their own private wish notes" on public.private_wish_notes;
+drop policy if exists "users can delete their own private wish notes" on public.private_wish_notes;
+
+create policy "users can read their own private wish notes"
+on public.private_wish_notes for select to authenticated
+using ((select auth.uid()) = user_id);
+
+create policy "users can create their own private wish notes"
+on public.private_wish_notes for insert to authenticated
+with check ((select auth.uid()) = user_id);
+
+create policy "users can update their own private wish notes"
+on public.private_wish_notes for update to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+create policy "users can delete their own private wish notes"
+on public.private_wish_notes for delete to authenticated
+using ((select auth.uid()) = user_id);
+
+-- 用户名：两个人都可以看到彼此的显示名，但只能修改自己的名字。
+create table if not exists public.user_profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+alter table public.user_profiles enable row level security;
+
+drop policy if exists "authenticated users can read profiles" on public.user_profiles;
+drop policy if exists "users can create their own profile" on public.user_profiles;
+drop policy if exists "users can update their own profile" on public.user_profiles;
+
+create policy "authenticated users can read profiles"
+on public.user_profiles for select to authenticated using (true);
+
+create policy "users can create their own profile"
+on public.user_profiles for insert to authenticated
+with check ((select auth.uid()) = user_id);
+
+create policy "users can update their own profile"
+on public.user_profiles for update to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
