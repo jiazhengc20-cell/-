@@ -245,13 +245,26 @@ async function getCloudUser() {
 async function loadWishData() {
   const user = await getCloudUser();
   if (!user) return;
-  const { data, error } = await supabaseClient
+  const { data: rows, error } = await supabaseClient
     .from("wish_data")
     .select("data")
     .eq("title", CLOUD_ROW_TITLE)
-    .single();
+    .order("created_at", { ascending: true })
+    .limit(1);
   if (error) {
     authStatus.textContent = `云端读取失败：${error.message}`;
+    return;
+  }
+  const data = rows?.[0];
+  if (!data) {
+    const { error: insertError } = await supabaseClient
+      .from("wish_data")
+      .insert({ title: CLOUD_ROW_TITLE, data: state });
+    if (insertError) {
+      authStatus.textContent = `云端初始化失败：${insertError.message}`;
+      return;
+    }
+    showBackupStatus("云端还没有愿望箱，已用本机内容初始化。");
     return;
   }
   if (data?.data?.categories && data?.data?.wishes) {
