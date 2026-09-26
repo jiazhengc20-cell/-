@@ -460,12 +460,22 @@ h2 {
   grid-template-columns: 58px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
+  width: 100%;
   min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--ink);
   text-align: left;
+}
+
+.category-select > span:last-child {
+  min-width: 0;
+}
+
+.category-select strong,
+.category-select small {
+  white-space: nowrap;
 }
 
 .category-actions {
