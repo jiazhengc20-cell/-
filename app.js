@@ -979,7 +979,11 @@ async function resolveImageValue(file, fallback) {
     return await uploadImageToCloud(file, user);
   } catch (error) {
     showBackupStatus("云端图片暂时不可用，已保留本地图片；请确认已创建 wish-images 存储桶。" );
-    return fallback || fileToDataUrl(file);
+    try {
+      return await fileToDataUrl(file);
+    } catch {
+      return fallback || "";
+    }
   }
 }
 
