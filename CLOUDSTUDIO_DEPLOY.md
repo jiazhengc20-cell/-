@@ -1,6 +1,13 @@
 # 咕噜咕噜的愿望箱：Cloud Studio 发布说明
 
-这个项目是纯静态网站，入口文件是 `index.html`，数据默认保存在浏览器本地 `localStorage`。愿望箱里已经内置“导出进度 / 导入进度”，可以把 JSON 备份文件保存到网盘或同步盘。
+这个项目是纯静态网站，入口文件是 `index.html`。数据会优先保存到 Supabase，未登录时仍会保存在浏览器本地 `localStorage`。愿望箱里也保留了“导出进度 / 导入进度”作为备用备份。
+
+## 配置 Supabase
+
+1. 在 Supabase SQL Editor 中执行项目里的 `supabase-setup.sql`。
+2. 确认已经创建 `wish_data` 表、`wish-images` 存储桶，并把 `wish_data` 加入 Realtime。
+3. 在 `app.js` 顶部填写 Supabase Project URL 和 Publishable key。
+4. 网站登录后，愿望数据会自动保存到云端；封面图片会上传到 `wish-images`。
 
 ## 在 Cloud Studio 里预览
 

@@ -1,4 +1,9 @@
 const STORAGE_KEY = "wish-atelier-state-v3";
+// Fill these two values with Supabase Project Settings → API values.
+const SUPABASE_URL = "https://vfmsovievdgytycizavi.supabase.co";
+const SUPABASE_KEY = "sb_publishable_a7BlLotAoQM2MC1yTSVgow_a8l5sYio";
+const CLOUD_ROW_TITLE = "咕噜咕噜的愿望箱";
+const STORAGE_BUCKET = "wish-images";
 const DEFAULT_COVER = "outputs/05-sip-wood-hush-zine.png";
 const DEFAULT_CATEGORY_COVER = "outputs/08-wrapped-light-bouquet-zine.png";
 const PRIORITIES = ["小小念头", "最近惦记", "非常想实现", "值得认真准备"];
@@ -56,6 +61,16 @@ const seedState = {
 };
 
 let state = loadState();
+let cloudSaveTimer = null;
+let cloudChannel = null;
+const cloudReady = Boolean(
+  window.supabase &&
+  !SUPABASE_URL.startsWith("YOUR_") &&
+  !SUPABASE_KEY.startsWith("YOUR_")
+);
+const supabaseClient = cloudReady
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;
 
 const categoryList = document.querySelector("#categoryList");
 const wishList = document.querySelector("#wishList");
@@ -75,6 +90,11 @@ const importProgressButton = document.querySelector("#importProgressButton");
 const cloudProgressButton = document.querySelector("#cloudProgressButton");
 const importProgressFile = document.querySelector("#importProgressFile");
 const backupStatus = document.querySelector("#backupStatus");
+const authStatus = document.querySelector("#authStatus");
+const authEmail = document.querySelector("#authEmail");
+const authPassword = document.querySelector("#authPassword");
+const authLoginButton = document.querySelector("#authLoginButton");
+const authLogoutButton = document.querySelector("#authLogoutButton");
 
 document.querySelector("#todayLabel").textContent = new Intl.DateTimeFormat("zh-CN", {
   dateStyle: "full",
@@ -94,6 +114,16 @@ importProgressButton.addEventListener("click", () => importProgressFile.click())
 cloudProgressButton.addEventListener("click", saveProgressForCloud);
 importProgressFile.addEventListener("change", importProgress);
 
+authLoginButton.addEventListener("click", signIn);
+authLogoutButton.addEventListener("click", signOut);
+
+if (!cloudReady) {
+  authStatus.textContent = "填入 Supabase 配置后即可开启双人同步";
+  authLoginButton.disabled = true;
+} else {
+  initialiseCloudSync();
+}
+
 let pendingCategoryCover = DEFAULT_CATEGORY_COVER;
 
 categoryCover.addEventListener("change", (event) => {
@@ -109,15 +139,26 @@ categoryCover.addEventListener("change", (event) => {
   reader.readAsDataURL(file);
 });
 
-categoryForm.addEventListener("submit", (event) => {
+categoryForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = categoryName.value.trim();
   if (!name) return;
+  const coverFile = categoryCover.files?.[0];
+  const submitButton = categoryForm.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  let cover = pendingCategoryCover;
+  try {
+    if (coverFile) cover = await resolveImageValue(coverFile, pendingCategoryCover);
+  } catch (error) {
+    showBackupStatus(`分类封面上传失败：${error.message}`);
+  } finally {
+    submitButton.disabled = false;
+  }
   const category = {
     id: crypto.randomUUID(),
     name,
     color: categoryColor.value || ["#1640df", "#6f8d5f", "#b06b45", "#2f2923"][state.categories.length % 4],
-    cover: pendingCategoryCover,
+    cover,
   };
   state.categories.push(category);
   state.activeCategoryId = category.id;
@@ -143,6 +184,120 @@ function loadState() {
 function commit() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   render();
+  scheduleCloudSave();
+}
+
+async function initialiseCloudSync() {
+  const { data } = await supabaseClient.auth.getSession();
+  updateAuthUI(data.session);
+  if (data.session) {
+    await loadWishData();
+    subscribeWishData();
+  }
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
+    updateAuthUI(session);
+    if (session) {
+      window.setTimeout(async () => {
+        await loadWishData();
+        subscribeWishData();
+      }, 0);
+    } else if (cloudChannel) {
+      supabaseClient.removeChannel(cloudChannel);
+      cloudChannel = null;
+    }
+  });
+}
+
+function updateAuthUI(session) {
+  const loggedIn = Boolean(session);
+  authStatus.textContent = loggedIn
+    ? `已登录：${session.user.email}`
+    : cloudReady ? "登录后同步你们的愿望箱" : "填入 Supabase 配置后即可开启双人同步";
+  authEmail.hidden = loggedIn;
+  authPassword.hidden = loggedIn;
+  authLoginButton.hidden = loggedIn;
+  authLogoutButton.hidden = !loggedIn;
+}
+
+async function signIn() {
+  const email = authEmail.value.trim();
+  const password = authPassword.value;
+  if (!email || !password) {
+    authStatus.textContent = "请输入邮箱和密码";
+    return;
+  }
+  authLoginButton.disabled = true;
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  authLoginButton.disabled = false;
+  if (error) authStatus.textContent = `登录失败：${error.message}`;
+}
+
+async function signOut() {
+  await supabaseClient.auth.signOut();
+}
+
+async function getCloudUser() {
+  if (!supabaseClient) return null;
+  const { data } = await supabaseClient.auth.getUser();
+  return data.user;
+}
+
+async function loadWishData() {
+  const user = await getCloudUser();
+  if (!user) return;
+  const { data, error } = await supabaseClient
+    .from("wish_data")
+    .select("data")
+    .eq("title", CLOUD_ROW_TITLE)
+    .single();
+  if (error) {
+    authStatus.textContent = `云端读取失败：${error.message}`;
+    return;
+  }
+  if (data?.data?.categories && data?.data?.wishes) {
+    const cloudState = normalizeState(data.data);
+    const localHasContent = state.categories.length > 0 || state.wishes.length > 0;
+    const cloudIsEmpty = cloudState.categories.length === 0 && cloudState.wishes.length === 0;
+    if (cloudIsEmpty && localHasContent) {
+      await saveWishDataToCloud();
+      showBackupStatus("云端还是空的，已先把这台设备的愿望箱上传到云端。");
+      return;
+    }
+    state = normalizeState({ ...cloudState, activeCategoryId: state.activeCategoryId, activeView: state.activeView });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    render();
+    showBackupStatus("已从云端同步最新愿望箱。");
+  }
+}
+
+function scheduleCloudSave() {
+  if (!cloudReady) return;
+  window.clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = window.setTimeout(saveWishDataToCloud, 500);
+}
+
+async function saveWishDataToCloud() {
+  const user = await getCloudUser();
+  if (!user) return;
+  const { error } = await supabaseClient
+    .from("wish_data")
+    .update({ data: state, updated_by: user.id, updated_at: new Date().toISOString() })
+    .eq("title", CLOUD_ROW_TITLE);
+  if (error) {
+    showBackupStatus(`云端保存失败：${error.message}`);
+    return;
+  }
+  showBackupStatus("已保存到云端，另一台设备会自动同步。");
+}
+
+function subscribeWishData() {
+  if (cloudChannel) return;
+  cloudChannel = supabaseClient
+    .channel("wish-data-sync")
+    .on("postgres_changes", { event: "*", schema: "public", table: "wish_data" }, async () => {
+      await loadWishData();
+    })
+    .subscribe();
 }
 
 function exportProgress(message = "进度备份已下载。") {
@@ -189,7 +344,11 @@ function importProgress(event) {
 }
 
 function saveProgressForCloud() {
-  exportProgress("已生成云端备份文件；把它保存到 OneDrive、iCloud 或网盘同步文件夹，就能跨设备保留进度。");
+  if (!cloudReady) {
+    showBackupStatus("请先在 app.js 填入 Supabase URL 和 Publishable key。");
+    return;
+  }
+  saveWishDataToCloud();
 }
 
 function render() {
@@ -363,15 +522,15 @@ function renderDetail() {
     });
   });
 
-  detailPanel.querySelector("#imageUpload").addEventListener("change", (event) => {
+  detailPanel.querySelector("#imageUpload").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      wish.image = reader.result;
+    try {
+      wish.image = await resolveImageValue(file, wish.image || DEFAULT_COVER);
       commit();
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      showBackupStatus(`封面上传失败：${error.message}`);
+    }
   });
 }
 
@@ -399,9 +558,20 @@ function showWishForm() {
   });
 
   form.querySelector("input").focus();
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
+    const submitButton = form.querySelector("button[type='submit']");
+    submitButton.disabled = true;
+    let image = selectedCover;
+    try {
+      const coverFile = coverInput.files?.[0];
+      if (coverFile) image = await resolveImageValue(coverFile, selectedCover);
+    } catch (error) {
+      showBackupStatus(`愿望封面上传失败：${error.message}`);
+    } finally {
+      submitButton.disabled = false;
+    }
     const wish = {
       id: crypto.randomUUID(),
       categoryId: state.activeCategoryId,
@@ -413,12 +583,43 @@ function showWishForm() {
       diary: "",
       priority: data.get("priority") || "最近惦记",
       memory: "",
-      image: selectedCover,
+      image,
     };
     if (!wish.title) return;
     state.wishes.unshift(wish);
     state.activeWishId = wish.id;
     commit();
+  });
+}
+
+async function resolveImageValue(file, fallback) {
+  const user = await getCloudUser();
+  if (!user) return fileToDataUrl(file);
+  try {
+    return await uploadImageToCloud(file, user);
+  } catch (error) {
+    showBackupStatus("云端图片暂时不可用，已保留本地图片；请确认已创建 wish-images 存储桶。" );
+    return fallback || fileToDataUrl(file);
+  }
+}
+
+async function uploadImageToCloud(file, user) {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const path = `${user.id}/${crypto.randomUUID()}-${safeName}`;
+  const { error } = await supabaseClient.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, file, { cacheControl: "3600", upsert: false });
+  if (error) throw error;
+  const { data } = supabaseClient.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("无法读取图片"));
+    reader.readAsDataURL(file);
   });
 }
 

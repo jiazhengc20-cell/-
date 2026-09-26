@@ -26,6 +26,19 @@
           </button>
         </header>
 
+        <section class="auth-strip" aria-label="双人同步登录">
+          <div class="auth-copy">
+            <strong>一起打开，一起收集</strong>
+            <span id="authStatus">登录后同步你们的愿望箱</span>
+          </div>
+          <div class="auth-controls">
+            <input id="authEmail" type="email" placeholder="邮箱" autocomplete="email" />
+            <input id="authPassword" type="password" placeholder="密码" autocomplete="current-password" />
+            <button class="backup-button" id="authLoginButton" type="button">登录</button>
+            <button class="backup-button" id="authLogoutButton" type="button" hidden>退出</button>
+          </div>
+        </section>
+
         <div class="hero-panel">
           <div class="hero-copy">
             <div class="hero-stats" aria-label="愿望统计">
@@ -144,6 +157,7 @@
       </form>
     </template>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>
   </body>
 </html>
