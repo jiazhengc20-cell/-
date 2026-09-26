@@ -471,11 +471,18 @@ h2 {
 
 .category-select > span:last-child {
   min-width: 0;
+  overflow-wrap: normal;
+  word-break: keep-all;
 }
 
 .category-select strong,
 .category-select small {
+  display: block;
   white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .category-actions {
