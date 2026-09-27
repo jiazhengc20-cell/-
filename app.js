@@ -124,6 +124,8 @@ const fulfilledDateInput = document.querySelector("#fulfilledDateInput");
 const fulfilledPhotoInput = document.querySelector("#fulfilledPhotoInput");
 const fulfilledPhotoPreview = document.querySelector("#fulfilledPhotoPreview");
 const fulfilledStoryInput = document.querySelector("#fulfilledStoryInput");
+const memoryDetailDialog = document.querySelector("#memoryDetailDialog");
+const memoryDetailContent = document.querySelector("#memoryDetailContent");
 
 document.querySelector("#todayLabel").textContent = new Intl.DateTimeFormat("zh-CN", {
   dateStyle: "full",
@@ -150,6 +152,12 @@ document.querySelector("#cancelFulfillButton").addEventListener("click", closeFu
 document.querySelector("#closeFulfillDialog").addEventListener("click", closeFulfillDialog);
 fulfilledPhotoInput.addEventListener("change", previewFulfilledPhoto);
 fulfillForm.addEventListener("submit", submitFulfilledWish);
+memoryDetailContent.addEventListener("click", (event) => {
+  if (event.target.closest("[data-close-memory]")) memoryDetailDialog.close();
+});
+memoryDetailDialog.addEventListener("click", (event) => {
+  if (event.target === memoryDetailDialog) memoryDetailDialog.close();
+});
 
 detailPanel.addEventListener("focusout", () => {
   window.setTimeout(async () => {
@@ -1038,11 +1046,19 @@ function renderMemories() {
     const category = state.categories.find((item) => item.id === wish.categoryId);
     const article = document.createElement("article");
     article.className = "memory-card";
+    article.tabIndex = 0;
+    article.setAttribute("role", "button");
+    article.setAttribute("aria-label", `查看回忆：${wish.title}`);
     article.innerHTML = `
       <img src="${escapeAttribute(wish.memoryImage || getWishCover(wish))}" alt="" />
       <div class="memory-card-body">
-        <strong>${escapeHtml(wish.title)}</strong>
-        <p>${escapeHtml(getWishStory(wish) || "这一天已经被收进回忆册。")}</p>
+        <strong class="memory-card-title">${escapeHtml(wish.title)}</strong>
+        <div class="memory-card-sections">
+          ${renderMemoryCardSection("照片故事", wish.diary)}
+          ${renderMemoryCardSection("心得", wish.memory && wish.memory !== wish.diary ? wish.memory : "")}
+          ${renderMemoryCardSection("幕后回顾", wish.revealedPrep)}
+          ${!wish.diary && !wish.memory && !wish.revealedPrep ? renderMemoryCardSection("这一天", wish.note || "这一天已经被收进回忆册。") : ""}
+        </div>
         <span class="wish-meta">
           <span class="tag">${escapeHtml(category?.name ?? "未分类")}</span>
           <span class="tag">${escapeHtml(wish.fulfilledAt)}</span>
@@ -1054,8 +1070,62 @@ function renderMemories() {
         </span>
       </div>
     `;
+    article.addEventListener("click", () => openMemoryDetail(wish));
+    article.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openMemoryDetail(wish);
+    });
     memoryList.append(article);
   });
+}
+
+function renderMemoryCardSection(label, content) {
+  if (!content) return "";
+  return `
+    <section class="memory-card-section">
+      <h3>${escapeHtml(label)}</h3>
+      <p>${escapeHtml(content)}</p>
+    </section>
+  `;
+}
+
+function openMemoryDetail(wish) {
+  const category = state.categories.find((item) => item.id === wish.categoryId);
+  memoryDetailContent.innerHTML = `
+    <div class="memory-detail-head">
+      <div>
+        <h2 id="memoryDetailTitle">${escapeHtml(wish.title)}</h2>
+        <p>${escapeHtml(category?.name ?? "未分类")} · 实现于 ${escapeHtml(wish.fulfilledAt || "未记录日期")}</p>
+      </div>
+      <button class="dialog-close" type="button" data-close-memory aria-label="关闭回忆详情">×</button>
+    </div>
+    <img class="memory-detail-image" src="${escapeAttribute(wish.memoryImage || getWishCover(wish))}" alt="${escapeAttribute(wish.title)}的回忆照片" />
+    <div class="memory-detail-sections">
+      ${renderMemoryDetailSection("最初的愿望", wish.note)}
+      ${renderMemoryDetailSection("照片故事", wish.diary)}
+      ${renderMemoryDetailSection("心得", wish.memory && wish.memory !== wish.diary ? wish.memory : "")}
+      ${renderMemoryDetailSection("幕后回顾", wish.revealedPrep)}
+    </div>
+    <div class="memory-detail-meta">
+      <span>${escapeHtml(getWishPriority(wish))}</span>
+      ${wish.wishAt ? `<span>许愿于 ${escapeHtml(formatWishAt(wish.wishAt))}</span>` : ""}
+      ${wish.createdBy ? `<span>添加：${escapeHtml(wish.createdBy)}</span>` : ""}
+      ${wish.preparedBy ? `<span>准备：${escapeHtml(wish.preparedBy)}</span>` : ""}
+      ${wish.fulfilledBy ? `<span>实现：${escapeHtml(wish.fulfilledBy)}</span>` : ""}
+    </div>
+  `;
+  memoryDetailDialog.showModal();
+}
+
+function renderMemoryDetailSection(label, content) {
+  if (!content) return "";
+  return `
+    <section>
+      <h3>${escapeHtml(label)}</h3>
+      <p>${escapeHtml(content)}</p>
+    </section>
+  `;
 }
 
 function setActiveView(view) {
