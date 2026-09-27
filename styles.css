@@ -1080,9 +1080,16 @@ button:focus-visible {
 
 .memory-card-title {
   display: block;
-  margin-bottom: 14px;
+  margin-bottom: 6px;
   font-size: clamp(1.35rem, 2vw, 1.7rem);
   line-height: 1.2;
+}
+
+.memory-days {
+  display: block;
+  margin-bottom: 16px;
+  color: #1678b6;
+  font-size: 0.9rem;
 }
 
 .memory-card-sections {
@@ -1097,7 +1104,7 @@ button:focus-visible {
 
 .memory-card-section h3 {
   margin: 0 0 5px;
-  color: var(--blue);
+  color: #1678b6;
   font-size: 0.78rem;
   line-height: 1.2;
 }
@@ -1179,7 +1186,7 @@ button:focus-visible {
 
 .memory-detail-sections h3 {
   margin: 0 0 7px;
-  color: var(--blue);
+  color: #1678b6;
   font-size: 1rem;
 }
 
@@ -1205,6 +1212,104 @@ button:focus-visible {
   background: rgba(22, 64, 223, 0.08);
   color: #2745a1;
   font-size: 0.84rem;
+}
+
+.memory-comments {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.memory-comments-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.memory-comments-head h3 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.memory-comments-head span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.memory-comment-list {
+  display: grid;
+  gap: 0;
+  margin-top: 8px;
+}
+
+.memory-comment {
+  padding: 15px 0;
+  border-bottom: 1px dashed rgba(47, 41, 35, 0.2);
+}
+
+.memory-comment > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-comment strong {
+  color: #1678b6;
+  font-size: 0.95rem;
+}
+
+.memory-comment time {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.memory-comment p {
+  margin: 7px 0 0;
+  color: #443d36;
+  font-size: 1rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.memory-comments-empty {
+  margin: 16px 0;
+  color: var(--muted);
+}
+
+.memory-comment-form {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.memory-comment-form > label {
+  color: #1678b6;
+  font-size: 0.9rem;
+}
+
+.memory-comment-form > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: end;
+}
+
+.memory-comment-form textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.memory-comment-form .ink-button {
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+.memory-comment-form > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .memory-empty {
@@ -1336,6 +1441,20 @@ button:focus-visible {
     max-height: 52vh;
   }
 
+  .memory-comment > div,
+  .memory-comment-form > div {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-comment > div {
+    display: grid;
+    gap: 3px;
+  }
+
+  .memory-comment-form .ink-button {
+    width: 100%;
+  }
+
   .fulfill-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -1361,3 +1480,4 @@ button:focus-visible {
     width: 100%;
   }
 }
+

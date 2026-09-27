@@ -81,6 +81,7 @@ let cloudChannel = null;
 let currentSession = null;
 let currentProfileName = "";
 let fulfillingWish = null;
+let activeMemoryWishId = null;
 let lastLocalCloudWriteAt = 0;
 let pendingRemoteRefresh = false;
 const cloudReady = Boolean(
@@ -155,6 +156,7 @@ fulfillForm.addEventListener("submit", submitFulfilledWish);
 memoryDetailContent.addEventListener("click", (event) => {
   if (event.target.closest("[data-close-memory]")) memoryDetailDialog.close();
 });
+memoryDetailContent.addEventListener("submit", submitMemoryComment);
 memoryDetailDialog.addEventListener("click", (event) => {
   if (event.target === memoryDetailDialog) memoryDetailDialog.close();
 });
@@ -563,6 +565,11 @@ function render() {
   renderWishes(visibleWishes);
   renderDetail();
   renderMemories();
+  if (memoryDetailDialog.open && activeMemoryWishId) {
+    const openWish = state.wishes.find((wish) => wish.id === activeMemoryWishId && wish.fulfilledAt);
+    if (openWish) openMemoryDetail(openWish);
+    else memoryDetailDialog.close();
+  }
 }
 
 function renderStats() {
@@ -971,6 +978,7 @@ function showWishForm() {
       revealedPrep: "",
       memoryImage: "",
       fulfilledBy: "",
+      comments: [],
       image,
     };
     if (!wish.title) return;
@@ -1053,6 +1061,7 @@ function renderMemories() {
       <img src="${escapeAttribute(wish.memoryImage || getWishCover(wish))}" alt="" />
       <div class="memory-card-body">
         <strong class="memory-card-title">${escapeHtml(wish.title)}</strong>
+        <span class="memory-days">实现第 ${getFulfilledDayCount(wish.fulfilledAt)} 天</span>
         <div class="memory-card-sections">
           ${renderMemoryCardSection("照片故事", wish.diary)}
           ${renderMemoryCardSection("心得", wish.memory && wish.memory !== wish.diary ? wish.memory : "")}
@@ -1067,6 +1076,7 @@ function renderMemories() {
           ${wish.preparedBy ? `<span class="tag person-tag">准备：${escapeHtml(wish.preparedBy)}</span>` : ""}
           ${wish.fulfilledBy ? `<span class="tag person-tag">实现：${escapeHtml(wish.fulfilledBy)}</span>` : ""}
           ${wish.wishAt ? `<span class="tag reminder">许愿于 ${escapeHtml(formatWishAt(wish.wishAt))}</span>` : ""}
+          ${wish.comments?.length ? `<span class="tag">${wish.comments.length} 条评论</span>` : ""}
         </span>
       </div>
     `;
@@ -1091,12 +1101,13 @@ function renderMemoryCardSection(label, content) {
 }
 
 function openMemoryDetail(wish) {
+  activeMemoryWishId = wish.id;
   const category = state.categories.find((item) => item.id === wish.categoryId);
   memoryDetailContent.innerHTML = `
     <div class="memory-detail-head">
       <div>
         <h2 id="memoryDetailTitle">${escapeHtml(wish.title)}</h2>
-        <p>${escapeHtml(category?.name ?? "未分类")} · 实现于 ${escapeHtml(wish.fulfilledAt || "未记录日期")}</p>
+        <p>${escapeHtml(category?.name ?? "未分类")} · 实现于 ${escapeHtml(wish.fulfilledAt || "未记录日期")} · <strong>第 ${getFulfilledDayCount(wish.fulfilledAt)} 天</strong></p>
       </div>
       <button class="dialog-close" type="button" data-close-memory aria-label="关闭回忆详情">×</button>
     </div>
@@ -1114,8 +1125,25 @@ function openMemoryDetail(wish) {
       ${wish.preparedBy ? `<span>准备：${escapeHtml(wish.preparedBy)}</span>` : ""}
       ${wish.fulfilledBy ? `<span>实现：${escapeHtml(wish.fulfilledBy)}</span>` : ""}
     </div>
+    <section class="memory-comments" aria-labelledby="memoryCommentsTitle">
+      <div class="memory-comments-head">
+        <h3 id="memoryCommentsTitle">一起留下的话</h3>
+        <span>${wish.comments?.length || 0} 条评论</span>
+      </div>
+      <div class="memory-comment-list">
+        ${renderMemoryComments(wish.comments)}
+      </div>
+      <form class="memory-comment-form">
+        <label for="memoryCommentInput">写下一句话</label>
+        <div>
+          <textarea id="memoryCommentInput" name="comment" maxlength="300" placeholder="关于这一天，你还想记住什么？" required></textarea>
+          <button class="ink-button" type="submit">发表评论</button>
+        </div>
+        <p>将以“${escapeHtml(getCurrentProfileName())}”的名字留下。</p>
+      </form>
+    </section>
   `;
-  memoryDetailDialog.showModal();
+  if (!memoryDetailDialog.open) memoryDetailDialog.showModal();
 }
 
 function renderMemoryDetailSection(label, content) {
@@ -1126,6 +1154,68 @@ function renderMemoryDetailSection(label, content) {
       <p>${escapeHtml(content)}</p>
     </section>
   `;
+}
+
+function renderMemoryComments(comments = []) {
+  if (!comments.length) return '<p class="memory-comments-empty">还没有评论，先留下第一句话吧。</p>';
+  return comments
+    .map(
+      (comment) => `
+        <article class="memory-comment">
+          <div>
+            <strong>（${escapeHtml(comment.author || "愿望箱成员")}）说</strong>
+            <time datetime="${escapeAttribute(comment.createdAt || "")}">${escapeHtml(formatCommentTime(comment.createdAt))}</time>
+          </div>
+          <p>${escapeHtml(comment.text || "")}</p>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function submitMemoryComment(event) {
+  if (!event.target.matches(".memory-comment-form")) return;
+  event.preventDefault();
+  const wish = state.wishes.find((item) => item.id === activeMemoryWishId && item.fulfilledAt);
+  const input = event.target.elements.comment;
+  const text = input.value.trim();
+  if (!wish || !text) return;
+  wish.comments ||= [];
+  wish.comments.push({
+    id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    author: getCurrentProfileName(),
+    authorId: currentSession?.user?.id || "",
+    text,
+    createdAt: new Date().toISOString(),
+  });
+  commit();
+  openMemoryDetail(wish);
+  showBackupStatus("评论已经留在这篇回忆里了。");
+  window.setTimeout(() => memoryDetailContent.querySelector("#memoryCommentInput")?.focus(), 0);
+}
+
+function formatCommentTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getFulfilledDayCount(value) {
+  if (!value) return 1;
+  const fulfilled = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(fulfilled.getTime())) return 1;
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const fulfilledStart = new Date(fulfilled.getFullYear(), fulfilled.getMonth(), fulfilled.getDate());
+  const elapsed = Math.floor((todayStart - fulfilledStart) / 86400000);
+  return Math.max(1, elapsed + 1);
 }
 
 function setActiveView(view) {
@@ -1167,6 +1257,15 @@ function normalizeState(nextState) {
     revealedPrep: wish.revealedPrep || "",
     memoryImage: wish.memoryImage || "",
     fulfilledBy: wish.fulfilledBy || "",
+    comments: Array.isArray(wish.comments)
+      ? wish.comments.map((comment) => ({
+          id: comment.id || `comment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          author: comment.author || "愿望箱成员",
+          authorId: comment.authorId || "",
+          text: comment.text || "",
+          createdAt: comment.createdAt || "",
+        }))
+      : [],
   }));
   return normalized;
 }
