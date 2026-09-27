@@ -491,6 +491,19 @@ h2 {
   align-items: center;
 }
 
+/* The desktop board gives the category rail less horizontal room than mobile.
+   Let the category name keep the full card width and move its controls below. */
+@media (min-width: 1051px) {
+  .category-item {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .category-actions {
+    justify-self: end;
+  }
+}
+
 .mini-icon-button {
   position: relative;
   display: inline-grid;
