@@ -139,6 +139,9 @@ const memoryDetailDialog = document.querySelector("#memoryDetailDialog");
 const memoryDetailContent = document.querySelector("#memoryDetailContent");
 const historyDialog = document.querySelector("#historyDialog");
 const historyList = document.querySelector("#historyList");
+const drawDialog = document.querySelector("#drawDialog");
+const drawCard = document.querySelector("#drawCard");
+let drawnWish = null;
 
 document.querySelector("#todayLabel").textContent = new Intl.DateTimeFormat("zh-CN", {
   dateStyle: "full",
@@ -180,6 +183,38 @@ historyDialog.addEventListener("click", (event) => {
   if (event.target === historyDialog) historyDialog.close();
 });
 historyList.addEventListener("click", handleHistoryAction);
+drawCard.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-draw-action]")?.dataset.drawAction;
+  if (!action) return;
+  if (action === "close") {
+    drawDialog.close();
+    return;
+  }
+  if (action === "again") {
+    drawDialog.close();
+    drawTodayWish();
+    return;
+  }
+  if (action === "add") {
+    drawDialog.close();
+    setActiveView("categories");
+    showWishForm();
+    return;
+  }
+  if (action === "open" && drawnWish) {
+    const wish = drawnWish;
+    drawDialog.close();
+    state.activeCategoryId = wish.categoryId;
+    state.activeWishId = wish.id;
+    state.activeView = "categories";
+    commit();
+    window.setTimeout(() => wishList.querySelector(".wish-card.active")?.classList.add("draw-reveal"), 0);
+    showBackupStatus(`抽中了“${wish.title}”，开始准备吧！`);
+  }
+});
+drawDialog.addEventListener("click", (event) => {
+  if (event.target === drawDialog) drawDialog.close();
+});
 memoryDetailContent.addEventListener("click", (event) => {
   if (event.target.closest("[data-close-memory]")) memoryDetailDialog.close();
 });
@@ -1448,18 +1483,46 @@ function drawTodayWish() {
     (wish) => !wish.fulfilledAt && candidateCategories.some((category) => category.id === wish.categoryId),
   );
   if (!candidates.length) {
-    showBackupStatus("还没有可抽取的愿望，可以先添加一个美食或日常愿望。");
-    setActiveView("categories");
-    showWishForm();
+    drawnWish = null;
+    renderDrawCard();
+    drawDialog.showModal();
     return;
   }
-  const wish = candidates[Math.floor(Math.random() * candidates.length)];
-  state.activeCategoryId = wish.categoryId;
-  state.activeWishId = wish.id;
-  state.activeView = "categories";
-  commit();
-  window.setTimeout(() => wishList.querySelector(".wish-card.active")?.classList.add("draw-reveal"), 0);
-  showBackupStatus(`抽中了“${wish.title}”，开始准备吧！`);
+  drawnWish = candidates[Math.floor(Math.random() * candidates.length)];
+  renderDrawCard(drawnWish);
+  if (!drawDialog.open) drawDialog.showModal();
+}
+
+function renderDrawCard(wish = null) {
+  if (!wish) {
+    drawCard.innerHTML = `
+      <div class="draw-card-head">
+        <span>今天做什么</span>
+        <button class="dialog-close" type="button" data-draw-action="close" aria-label="关闭提醒">×</button>
+      </div>
+      <div class="draw-card-empty">
+        <strong>还没有可抽取的愿望</strong>
+        <p>先在“美食”或“日常”里添加一个吧。</p>
+        <button class="ink-button" type="button" data-draw-action="add">添加一个愿望</button>
+      </div>`;
+    return;
+  }
+  const category = state.categories.find((item) => item.id === wish.categoryId);
+  drawCard.innerHTML = `
+    <div class="draw-card-head">
+      <span>今天做什么</span>
+      <button class="dialog-close" type="button" data-draw-action="close" aria-label="关闭提醒">×</button>
+    </div>
+    ${wish.cover ? `<img class="draw-card-image" src="${escapeAttribute(wish.cover)}" alt="${escapeAttribute(wish.title)}">` : ""}
+    <div class="draw-card-copy">
+      <small>${escapeHtml(category?.name || "愿望")}</small>
+      <h2 id="drawDialogTitle">${escapeHtml(wish.title)}</h2>
+      <p>今天就做这件小事。</p>
+    </div>
+    <div class="draw-card-actions">
+      <button class="backup-button" type="button" data-draw-action="again">再抽一次</button>
+      <button class="ink-button" type="button" data-draw-action="open">打开愿望</button>
+    </div>`;
 }
 
 function renderMemoryCardSection(label, content) {

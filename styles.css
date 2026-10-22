@@ -474,6 +474,38 @@ h2 {
   color: #287fbd;
 }
 
+.draw-dialog {
+  width: min(88vw, 420px);
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 24px 70px rgba(26, 24, 22, 0.28);
+}
+
+.draw-dialog::backdrop {
+  background: rgba(24, 22, 20, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.draw-card { padding: 18px; }
+.draw-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.draw-card-head > span { color: #1678b6; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; }
+.draw-card-image { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; margin-top: 10px; border-radius: 12px; }
+.draw-card-copy { padding: 16px 4px 8px; }
+.draw-card-copy small { color: #1678b6; font-weight: 700; }
+.draw-card-copy h2 { margin: 6px 0; font-size: clamp(1.7rem, 7vw, 2.3rem); line-height: 1.08; }
+.draw-card-copy p, .draw-card-empty p { margin: 0; color: var(--muted); }
+.draw-card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.draw-card-empty { display: grid; gap: 12px; padding: 28px 4px 8px; text-align: center; }
+.draw-card-empty strong { font-size: 1.3rem; }
+
+@media (max-width: 720px) {
+  .draw-card-actions { flex-direction: column-reverse; }
+  .draw-card-actions button, .draw-card-empty button { width: 100%; }
+}
+
 .paper-slip {
   justify-self: end;
   width: min(100%, 310px);
