@@ -89,6 +89,7 @@ let historyDebounceTimer = null;
 let memorySortOrder = localStorage.getItem("wish-memory-sort") || "desc";
 let lastLocalCloudWriteAt = 0;
 let pendingRemoteRefresh = false;
+let pendingPrivateWishId = "";
 const cloudReady = Boolean(
   window.supabase &&
   !SUPABASE_URL.startsWith("YOUR_") &&
@@ -472,12 +473,18 @@ async function loadWishData() {
   }
 }
 
-function scheduleCloudSave() {
+function scheduleCloudSave(privateWishId = "") {
   if (!cloudReady) return;
+  if (privateWishId) pendingPrivateWishId = privateWishId;
   window.clearTimeout(cloudSaveTimer);
   cloudSaveTimer = window.setTimeout(async () => {
     await saveWishDataToCloud();
-    await savePrivateNotesToCloud();
+    const wishId = pendingPrivateWishId;
+    pendingPrivateWishId = "";
+    if (wishId) {
+      const wish = state.wishes.find((item) => item.id === wishId);
+      if (wish) await savePrivateNoteToCloud(wish);
+    }
   }, 500);
 }
 
@@ -671,6 +678,23 @@ async function savePrivateNotesToCloud() {
     .from("private_wish_notes")
     .upsert(notes, { onConflict: "wish_id" });
   if (error) showBackupStatus(`幕后准备区保存失败：${error.message}`);
+}
+
+async function savePrivateNoteToCloud(wish) {
+  const user = await getCloudUser();
+  if (!user || !wish?.id) return;
+  const note = (wish.privatePrep || "").trim();
+  const query = supabaseClient.from("private_wish_notes");
+  const result = note
+    ? await query.upsert({
+        wish_id: wish.id,
+        user_id: user.id,
+        private_prep: note,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "wish_id" })
+    : await query.delete().eq("user_id", user.id).eq("wish_id", wish.id);
+  if (result.error) showBackupStatus(`幕后准备区保存失败：${result.error.message}`);
+  else showBackupStatus("幕后准备已保存。");
 }
 
 function subscribeWishData() {
@@ -1047,7 +1071,7 @@ function renderDetail() {
         wish.preparedById = currentSession.user.id;
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      scheduleCloudSave();
+      scheduleCloudSave(event.target.dataset.field === "privatePrep" ? wish.id : "");
       queueHistory("编辑愿望", "wish", wish.id);
       renderStats();
       if (event.target.dataset.field === "title") {
