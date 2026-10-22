@@ -1,4 +1,5 @@
 const STORAGE_KEY = "wish-atelier-state-v3";
+const HISTORY_STORAGE_KEY = "wish-atelier-history-v1";
 // Fill these two values with Supabase Project Settings → API values.
 const SUPABASE_URL = "https://vfmsovievdgytycizavi.supabase.co";
 const SUPABASE_KEY = "sb_publishable_a7BlLotAoQM2MC1yTSVgow_a8l5sYio";
@@ -82,6 +83,8 @@ let currentSession = null;
 let currentProfileName = "";
 let fulfillingWish = null;
 let activeMemoryWishId = null;
+let historyItems = [];
+let historyDebounceTimer = null;
 let lastLocalCloudWriteAt = 0;
 let pendingRemoteRefresh = false;
 const cloudReady = Boolean(
@@ -109,6 +112,7 @@ const memoryViewButton = document.querySelector("#memoryViewButton");
 const exportProgressButton = document.querySelector("#exportProgressButton");
 const importProgressButton = document.querySelector("#importProgressButton");
 const cloudProgressButton = document.querySelector("#cloudProgressButton");
+const historyButton = document.querySelector("#historyButton");
 const importProgressFile = document.querySelector("#importProgressFile");
 const backupStatus = document.querySelector("#backupStatus");
 const authStatus = document.querySelector("#authStatus");
@@ -127,6 +131,8 @@ const fulfilledPhotoPreview = document.querySelector("#fulfilledPhotoPreview");
 const fulfilledStoryInput = document.querySelector("#fulfilledStoryInput");
 const memoryDetailDialog = document.querySelector("#memoryDetailDialog");
 const memoryDetailContent = document.querySelector("#memoryDetailContent");
+const historyDialog = document.querySelector("#historyDialog");
+const historyList = document.querySelector("#historyList");
 
 document.querySelector("#todayLabel").textContent = new Intl.DateTimeFormat("zh-CN", {
   dateStyle: "full",
@@ -144,6 +150,7 @@ memoryViewButton.addEventListener("click", () => setActiveView("memories"));
 exportProgressButton.addEventListener("click", () => exportProgress());
 importProgressButton.addEventListener("click", () => importProgressFile.click());
 cloudProgressButton.addEventListener("click", saveProgressForCloud);
+historyButton.addEventListener("click", openHistoryDialog);
 importProgressFile.addEventListener("change", importProgress);
 
 authLoginButton.addEventListener("click", signIn);
@@ -153,6 +160,11 @@ document.querySelector("#cancelFulfillButton").addEventListener("click", closeFu
 document.querySelector("#closeFulfillDialog").addEventListener("click", closeFulfillDialog);
 fulfilledPhotoInput.addEventListener("change", previewFulfilledPhoto);
 fulfillForm.addEventListener("submit", submitFulfilledWish);
+document.querySelector("#closeHistoryDialog").addEventListener("click", () => historyDialog.close());
+historyDialog.addEventListener("click", (event) => {
+  if (event.target === historyDialog) historyDialog.close();
+});
+historyList.addEventListener("click", handleHistoryAction);
 memoryDetailContent.addEventListener("click", (event) => {
   if (event.target.closest("[data-close-memory]")) memoryDetailDialog.close();
 });
@@ -221,7 +233,7 @@ categoryForm.addEventListener("submit", async (event) => {
   categoryCover.value = "";
   pendingCategoryCover = DEFAULT_CATEGORY_COVER;
   categoryForm.classList.add("hidden");
-  commit();
+  commit("新增分类", "category", category.id);
 });
 
 function loadState() {
@@ -234,10 +246,16 @@ function loadState() {
   }
 }
 
-function commit() {
+function commit(action = "", targetType = "workspace", targetId = "") {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   render();
   scheduleCloudSave();
+  if (action) recordHistory(action, targetType, targetId);
+}
+
+function queueHistory(action, targetType, targetId) {
+  window.clearTimeout(historyDebounceTimer);
+  historyDebounceTimer = window.setTimeout(() => recordHistory(action, targetType, targetId), 1200);
 }
 
 async function initialiseCloudSync() {
@@ -428,6 +446,126 @@ async function saveWishDataToCloud() {
   showBackupStatus("已保存到云端，另一台设备会自动同步。");
 }
 
+function getLocalHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function recordHistory(action, targetType = "workspace", targetId = "") {
+  const entry = {
+    id: crypto.randomUUID(),
+    action,
+    target_type: targetType,
+    target_id: targetId || null,
+    actor_id: currentSession?.user?.id || null,
+    actor_name: getCurrentProfileName(),
+    snapshot: getSharedState(),
+    user_agent: navigator.userAgent,
+    created_at: new Date().toISOString(),
+  };
+  const localHistory = [entry, ...getLocalHistory()]
+    .filter((item) => Date.now() - new Date(item.created_at).getTime() <= 30 * 86400000)
+    .slice(0, 100);
+  localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(localHistory));
+  historyItems = localHistory;
+  if (!supabaseClient || !currentSession) return;
+  const { error } = await supabaseClient.from("wish_history").insert({
+    action: entry.action,
+    target_type: entry.target_type,
+    target_id: entry.target_id,
+    actor_id: entry.actor_id,
+    actor_name: entry.actor_name,
+    snapshot: entry.snapshot,
+    user_agent: entry.user_agent,
+    created_at: entry.created_at,
+  });
+  if (error) showBackupStatus(`操作记录保存失败：${error.message}`);
+}
+
+async function loadHistory() {
+  const localHistory = getLocalHistory();
+  if (!supabaseClient || !currentSession) {
+    historyItems = localHistory;
+    renderHistoryList();
+    return;
+  }
+  const { data, error } = await supabaseClient
+    .from("wish_history")
+    .select("id, action, target_type, target_id, actor_id, actor_name, snapshot, user_agent, created_at")
+    .gte("created_at", new Date(Date.now() - 30 * 86400000).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    historyItems = localHistory;
+    showBackupStatus(`操作记录读取失败：${error.message}`);
+  } else {
+    historyItems = data || [];
+  }
+  renderHistoryList();
+}
+
+function openHistoryDialog() {
+  historyDialog.showModal();
+  historyList.innerHTML = '<p class="history-empty">正在读取操作记录……</p>';
+  loadHistory();
+}
+
+function renderHistoryList() {
+  if (!historyItems.length) {
+    historyList.innerHTML = '<p class="history-empty">还没有操作记录。下一次关键修改会从这里开始保存。</p>';
+    return;
+  }
+  historyList.innerHTML = historyItems
+    .map((item) => {
+      const targetLabel = item.target_type === "wish" ? "愿望" : item.target_type === "category" ? "分类" : "愿望箱";
+      return `
+        <article class="history-item">
+          <div class="history-item-copy">
+            <strong>${escapeHtml(item.action)}</strong>
+            <p>${escapeHtml(item.actor_name || "愿望箱成员")} · ${escapeHtml(formatCommentTime(item.created_at))} · ${targetLabel}</p>
+          </div>
+          <div class="history-item-actions">
+            ${item.target_type === "wish" ? `<button class="backup-button" type="button" data-history-action="wish" data-history-id="${escapeAttribute(item.id)}">恢复此愿望</button>` : ""}
+            <button class="backup-button" type="button" data-history-action="workspace" data-history-id="${escapeAttribute(item.id)}">恢复整箱</button>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+async function handleHistoryAction(event) {
+  const button = event.target.closest("[data-history-action]");
+  if (!button) return;
+  const item = historyItems.find((history) => history.id === button.dataset.historyId);
+  if (!item?.snapshot) return;
+  const scope = button.dataset.historyAction === "wish" ? "这个愿望" : "整个愿望箱";
+  if (!window.confirm(`确定恢复${scope}到 ${formatCommentTime(item.created_at)} 的版本吗？恢复前会自动备份当前状态。`)) return;
+  await recordHistory("恢复前自动备份", "backup", "");
+  if (scope === "整个愿望箱") {
+    state = normalizeState({ ...item.snapshot, activeCategoryId: state.activeCategoryId, activeView: state.activeView });
+  } else {
+    const sourceWish = item.snapshot.wishes?.find((wish) => wish.id === item.target_id);
+    if (!sourceWish) {
+      showBackupStatus("这个历史版本里找不到对应愿望，暂时无法恢复。");
+      return;
+    }
+    const sourceCategory = item.snapshot.categories?.find((category) => category.id === sourceWish.categoryId);
+    state.wishes = state.wishes.filter((wish) => wish.id !== sourceWish.id);
+    state.wishes.push(sourceWish);
+    if (sourceCategory && !state.categories.some((category) => category.id === sourceCategory.id)) {
+      state.categories.push(sourceCategory);
+    }
+  }
+  commit("恢复历史版本", scope === "整个愿望箱" ? "workspace" : "wish", item.target_id || "");
+  showBackupStatus(`已恢复${scope}，当前状态也已自动留下备份。`);
+  await loadHistory();
+}
+
 function getSharedState() {
   const sharedState = structuredClone(state);
   sharedState.wishes = sharedState.wishes.map((wish) => ({ ...wish, privatePrep: "" }));
@@ -534,7 +672,7 @@ function importProgress(event) {
         throw new Error("invalid backup");
       }
       state = normalizeState(importedState);
-      commit();
+      commit("导入进度", "workspace", "");
       showBackupStatus("已导入进度，愿望箱恢复好了。");
     } catch {
       showBackupStatus("导入失败：请选择之前导出的愿望箱 JSON 文件。");
@@ -613,7 +751,7 @@ function renderCategories() {
       if (!file) return;
       try {
         category.cover = await resolveImageValue(file, getCategoryCover(category));
-        commit();
+        commit("修改分类封面", "category", category.id);
         showBackupStatus(`“${category.name}”的封面已更新。`);
       } catch (error) {
         showBackupStatus(`分类封面上传失败：${error.message}`);
@@ -634,6 +772,7 @@ function deleteCategory(category) {
     ? `删除“${category.name}”会同时删除其中的 ${count} 个愿望，确定继续吗？`
     : `确定删除“${category.name}”这个分类吗？`;
   if (!window.confirm(message)) return;
+  recordHistory("删除分类（删除前版本）", "category", category.id);
   state.categories = state.categories.filter((item) => item.id !== category.id);
   state.wishes = state.wishes.filter((wish) => wish.categoryId !== category.id);
   if (state.activeCategoryId === category.id) {
@@ -781,6 +920,7 @@ function renderDetail() {
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       scheduleCloudSave();
+      queueHistory("编辑愿望", "wish", wish.id);
       renderStats();
       if (event.target.dataset.field === "title") {
         detailPanel.querySelector(".detail-title h2").textContent = wish.title;
@@ -816,7 +956,7 @@ function renderDetail() {
     if (!file) return;
     try {
       wish.image = await resolveImageValue(file, wish.image || DEFAULT_COVER);
-      commit();
+      commit("修改愿望封面", "wish", wish.id);
     } catch (error) {
       showBackupStatus(`封面上传失败：${error.message}`);
     }
@@ -845,12 +985,13 @@ function moveWishToCategory(wish, categoryId) {
   wish.categoryId = categoryId;
   state.activeCategoryId = categoryId;
   state.activeWishId = wish.id;
-  commit();
+  commit("移动愿望", "wish", wish.id);
   showBackupStatus(`已把“${wish.title}”移动到“${category.name}”。`);
 }
 
 function deleteWish(wish) {
   if (!window.confirm(`确定删除“${wish.title}”这个愿望吗？删除后无法从愿望箱恢复。`)) return;
+  recordHistory("删除愿望（删除前版本）", "wish", wish.id);
   state.wishes = state.wishes.filter((item) => item.id !== wish.id);
   state.activeWishId = state.wishes.find((item) => item.categoryId === state.activeCategoryId)?.id || null;
   commit();
@@ -893,6 +1034,7 @@ async function submitFulfilledWish(event) {
   event.preventDefault();
   if (!fulfillingWish) return;
   const wish = fulfillingWish;
+  const wasFulfilled = Boolean(wish.fulfilledAt);
   const submitButton = fulfillForm.querySelector("button[type='submit']");
   const story = fulfilledStoryInput.value.trim();
   if (!story) return;
@@ -913,7 +1055,7 @@ async function submitFulfilledWish(event) {
     }
     state.activeView = "memories";
     closeFulfillDialog();
-    commit();
+    commit(wasFulfilled ? "修改实现记录" : "完成愿望", "wish", wish.id);
     showBackupStatus("这件愿望已实现，照片、故事和幕后回顾都收进回忆册了。");
   } catch (error) {
     showBackupStatus(`回忆保存失败：${error.message}`);
@@ -984,7 +1126,7 @@ function showWishForm() {
     if (!wish.title) return;
     state.wishes.unshift(wish);
     state.activeWishId = wish.id;
-    commit();
+    commit("新增愿望", "wish", wish.id);
   });
 }
 
@@ -1188,7 +1330,7 @@ function submitMemoryComment(event) {
     text,
     createdAt: new Date().toISOString(),
   });
-  commit();
+  commit("发表评论", "wish", wish.id);
   openMemoryDetail(wish);
   showBackupStatus("评论已经留在这篇回忆里了。");
   window.setTimeout(() => memoryDetailContent.querySelector("#memoryCommentInput")?.focus(), 0);

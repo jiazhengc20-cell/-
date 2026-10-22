@@ -24,6 +24,12 @@
             <span aria-hidden="true">＋</span>
             新愿望
           </button>
+          <details class="more-menu">
+            <summary>更多</summary>
+            <div class="more-menu-panel">
+              <button class="backup-button" id="historyButton" type="button">操作记录</button>
+            </div>
+          </details>
         </header>
 
         <section class="auth-strip" aria-label="双人同步登录">
@@ -197,6 +203,22 @@
 
     <dialog class="memory-detail-dialog" id="memoryDetailDialog" aria-labelledby="memoryDetailTitle">
       <article class="memory-detail" id="memoryDetailContent"></article>
+    </dialog>
+
+    <dialog class="history-dialog" id="historyDialog" aria-labelledby="historyDialogTitle">
+      <div class="history-dialog-inner">
+        <div class="dialog-head">
+          <div>
+            <span class="dialog-kicker">change log</span>
+            <h2 id="historyDialogTitle">操作记录</h2>
+          </div>
+          <button class="dialog-close" id="closeHistoryDialog" type="button" aria-label="关闭操作记录">×</button>
+        </div>
+        <p class="dialog-intro">记录最近 30 天的关键操作。恢复前会先自动保存当前状态。</p>
+        <div class="history-list" id="historyList">
+          <p class="history-empty">正在读取操作记录……</p>
+        </div>
+      </div>
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
