@@ -66,6 +66,7 @@
             <div class="view-switch" aria-label="视图切换">
               <button class="view-button active" id="categoryViewButton" type="button">分类工作台</button>
               <button class="view-button" id="memoryViewButton" type="button">回忆册</button>
+              <button class="view-button draw-button" id="drawWishButton" type="button">今天做什么</button>
             </div>
           </div>
           <div class="paper-slip">
@@ -73,6 +74,20 @@
             <strong id="activeCategoryTitle">旅游</strong>
           </div>
         </div>
+
+        <section class="anniversary-board" aria-label="纪念日">
+          <div class="panel-head">
+            <h2>纪念日</h2>
+            <button class="text-button" id="addAnniversaryButton" type="button">添加日期</button>
+          </div>
+          <div class="anniversary-list" id="anniversaryList"></div>
+          <form class="anniversary-form hidden" id="anniversaryForm">
+            <input id="anniversaryName" name="name" maxlength="30" placeholder="比如：第一次见面" required />
+            <input id="anniversaryDate" name="date" type="date" required />
+            <input id="anniversaryPhoto" name="photo" type="file" accept="image/*" />
+            <button type="submit">收进纪念日</button>
+          </form>
+        </section>
 
         <div class="board">
           <nav class="category-panel" aria-label="愿望分类">
@@ -116,7 +131,10 @@
         <section class="memory-board hidden" id="memoryBoard" aria-label="愿望回忆册">
           <div class="panel-head">
             <h2>回忆册</h2>
-            <p class="cover-hint">已实现的愿望会自动来到这里，像一页页完成后的生活小记。</p>
+            <div class="memory-board-tools">
+              <p class="cover-hint">已实现的愿望会自动来到这里，像一页页完成后的生活小记。</p>
+              <button class="backup-button" id="memorySortButton" type="button">最新在前 ↓</button>
+            </div>
           </div>
           <div class="memory-list" id="memoryList"></div>
         </section>

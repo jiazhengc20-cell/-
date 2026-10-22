@@ -13,6 +13,7 @@ const seedState = {
   activeCategoryId: "travel",
   activeWishId: "wish-1",
   activeView: "categories",
+  anniversaries: [],
   categories: [
     { id: "travel", name: "旅游", color: "#1640df", cover: "outputs/06-slow-window-light-zine.png" },
     { id: "food", name: "美食", color: "#6f8d5f", cover: "outputs/02-glass-light-stillness-zine.png" },
@@ -85,6 +86,7 @@ let fulfillingWish = null;
 let activeMemoryWishId = null;
 let historyItems = [];
 let historyDebounceTimer = null;
+let memorySortOrder = localStorage.getItem("wish-memory-sort") || "desc";
 let lastLocalCloudWriteAt = 0;
 let pendingRemoteRefresh = false;
 const cloudReady = Boolean(
@@ -109,12 +111,16 @@ const categoryColor = document.querySelector("#categoryColor");
 const categoryCover = document.querySelector("#categoryCover");
 const categoryViewButton = document.querySelector("#categoryViewButton");
 const memoryViewButton = document.querySelector("#memoryViewButton");
+const drawWishButton = document.querySelector("#drawWishButton");
+const memorySortButton = document.querySelector("#memorySortButton");
 const exportProgressButton = document.querySelector("#exportProgressButton");
 const importProgressButton = document.querySelector("#importProgressButton");
 const cloudProgressButton = document.querySelector("#cloudProgressButton");
 const historyButton = document.querySelector("#historyButton");
 const importProgressFile = document.querySelector("#importProgressFile");
 const backupStatus = document.querySelector("#backupStatus");
+const anniversaryList = document.querySelector("#anniversaryList");
+const anniversaryForm = document.querySelector("#anniversaryForm");
 const authStatus = document.querySelector("#authStatus");
 const authEmail = document.querySelector("#authEmail");
 const authPassword = document.querySelector("#authPassword");
@@ -147,6 +153,15 @@ document.querySelector("#addWishButton").addEventListener("click", showWishForm)
 document.querySelector("#newWishTopButton").addEventListener("click", showWishForm);
 categoryViewButton.addEventListener("click", () => setActiveView("categories"));
 memoryViewButton.addEventListener("click", () => setActiveView("memories"));
+drawWishButton.addEventListener("click", drawTodayWish);
+document.querySelector("#addAnniversaryButton").addEventListener("click", () => anniversaryForm.classList.toggle("hidden"));
+anniversaryForm.addEventListener("submit", submitAnniversary);
+memorySortButton.addEventListener("click", () => {
+  memorySortOrder = memorySortOrder === "desc" ? "asc" : "desc";
+  localStorage.setItem("wish-memory-sort", memorySortOrder);
+  updateMemorySortButton();
+  renderMemories();
+});
 exportProgressButton.addEventListener("click", () => exportProgress());
 importProgressButton.addEventListener("click", () => importProgressFile.click());
 cloudProgressButton.addEventListener("click", saveProgressForCloud);
@@ -699,6 +714,7 @@ function render() {
 
   renderView();
   renderStats();
+  renderAnniversaries();
   renderCategories();
   renderWishes(visibleWishes);
   renderDetail();
@@ -708,6 +724,61 @@ function render() {
     if (openWish) openMemoryDetail(openWish);
     else memoryDetailDialog.close();
   }
+}
+
+function renderAnniversaries() {
+  if (!anniversaryList) return;
+  if (!state.anniversaries?.length) {
+    anniversaryList.innerHTML = '<p class="anniversary-empty">把想记住的日期收进来。</p>';
+    return;
+  }
+  anniversaryList.innerHTML = state.anniversaries
+    .slice()
+    .sort((a, b) => daysUntil(a.date) - daysUntil(b.date))
+    .map((item) => `
+      <article class="anniversary-card">
+        ${item.photo ? `<img src="${escapeAttribute(item.photo)}" alt="" />` : ""}
+        <div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.date)} · ${formatAnniversaryCountdown(item.date)}</span></div>
+        <button type="button" class="mini-icon-button" data-delete-anniversary="${escapeAttribute(item.id)}" aria-label="删除纪念日">×</button>
+      </article>
+    `)
+    .join("");
+  anniversaryList.querySelectorAll("[data-delete-anniversary]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.anniversaries = state.anniversaries.filter((item) => item.id !== button.dataset.deleteAnniversary);
+      commit("删除纪念日", "anniversary", button.dataset.deleteAnniversary);
+    });
+  });
+}
+
+async function submitAnniversary(event) {
+  event.preventDefault();
+  const formData = new FormData(anniversaryForm);
+  const name = formData.get("name").trim();
+  const date = formData.get("date");
+  if (!name || !date) return;
+  let photo = "";
+  const file = anniversaryForm.querySelector("[name='photo']").files?.[0];
+  if (file) photo = await resolveImageValue(file, "");
+  const anniversary = { id: crypto.randomUUID(), name, date, photo };
+  state.anniversaries.push(anniversary);
+  anniversaryForm.reset();
+  anniversaryForm.classList.add("hidden");
+  commit("新增纪念日", "anniversary", anniversary.id);
+}
+
+function daysUntil(value) {
+  const target = new Date(`${value}T00:00:00`);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - today) / 86400000);
+}
+
+function formatAnniversaryCountdown(value) {
+  const days = daysUntil(value);
+  if (days === 0) return "就是今天";
+  if (days > 0) return `还有 ${days} 天`;
+  return `已过去 ${Math.abs(days)} 天`;
 }
 
 function renderStats() {
@@ -805,6 +876,7 @@ function renderWishes(wishes) {
           <span class="tag">${wish.fulfilledAt ? "已实现" : "想实现"}</span>
           <span class="tag priority">${escapeHtml(getWishPriority(wish))}</span>
           ${wish.wishAt ? `<span class="tag reminder">许愿于 ${escapeHtml(formatWishAt(wish.wishAt))}</span>` : ""}
+          ${renderCountdownTag(wish)}
           <span class="tag">${wish.memory ? "有心得" : "待记录"}</span>
           ${wish.createdBy ? `<span class="tag person-tag">添加：${escapeHtml(wish.createdBy)}</span>` : ""}
           ${wish.preparedBy ? `<span class="tag person-tag">准备：${escapeHtml(wish.preparedBy)}</span>` : ""}
@@ -841,6 +913,9 @@ function renderDetail() {
       </div>
     `;
 
+  const countdownMarkup = renderCountdown(wish);
+  const prepChecklistMarkup = currentSession ? renderPrepChecklist(wish) : "";
+
     detailPanel.innerHTML = `
     <div class="detail-hero">
       <img src="${escapeAttribute(getWishCover(wish))}" alt="" />
@@ -872,6 +947,23 @@ function renderDetail() {
         <input data-field="wishAt" type="date" value="${escapeAttribute(wish.wishAt || "")}" />
       </label>
       <label>
+        <span>计划实现时间</span>
+        <input data-field="plannedAt" type="date" value="${escapeAttribute(wish.plannedAt || "")}" />
+      </label>
+      <label>
+        <span>实现地点</span>
+        <input data-field="placeName" value="${escapeAttribute(wish.placeName || "")}" placeholder="比如：杭州西湖边" />
+      </label>
+      <label>
+        <span>地图链接</span>
+        <input data-field="mapUrl" type="url" value="${escapeAttribute(wish.mapUrl || "")}" placeholder="粘贴地图链接" />
+      </label>
+      <label>
+        <span>照片拍摄地点</span>
+        <input data-field="photoLocation" value="${escapeAttribute(wish.photoLocation || "")}" placeholder="照片里的地点或角落" />
+      </label>
+      ${countdownMarkup}
+      <label>
         <span>惦记程度</span>
         <select data-field="priority">
           ${renderPriorityOptions(getWishPriority(wish))}
@@ -886,6 +978,7 @@ function renderDetail() {
         <textarea data-field="memory" placeholder="实现那天发生了什么，她笑了几次，你想记住什么。">${escapeHtml(wish.memory)}</textarea>
       </label>
       ${privatePrepMarkup}
+      ${prepChecklistMarkup}
       <div class="cover-toolbar">
         <p class="cover-hint">这张图会作为愿望卡片缩略图和详情页封面。</p>
         <label class="upload-button">
@@ -951,6 +1044,50 @@ function renderDetail() {
     });
   });
 
+  detailPanel.querySelector("#prepChecklistForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = event.target.elements.item;
+    const text = input.value.trim();
+    if (!text) return;
+    wish.prepItems ||= [];
+    wish.prepItems.push({ id: crypto.randomUUID(), text, done: false, completedBy: "", completedAt: "" });
+    commit("新增准备事项", "wish", wish.id);
+  });
+  detailPanel.querySelector("#startPrepButton")?.addEventListener("click", () => {
+    wish.prepStarted = true;
+    commit("开始准备", "wish", wish.id);
+  });
+  detailPanel.querySelectorAll("[data-prep-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = wish.prepItems?.find((prep) => prep.id === button.dataset.prepToggle);
+      if (!item) return;
+      item.done = !item.done;
+      item.completedBy = item.done ? getCurrentProfileName() : "";
+      item.completedAt = item.done ? new Date().toISOString() : "";
+      commit("更新准备事项", "wish", wish.id);
+    });
+  });
+  detailPanel.querySelectorAll("[data-prep-delete]").forEach((button) => {
+    button.addEventListener("click", () => {
+      wish.prepItems = (wish.prepItems || []).filter((prep) => prep.id !== button.dataset.prepDelete);
+      commit("删除准备事项", "wish", wish.id);
+    });
+  });
+  detailPanel.querySelectorAll("[data-prep-item]").forEach((item) => {
+    item.addEventListener("dragstart", (event) => event.dataTransfer.setData("text/plain", item.dataset.prepItem));
+    item.addEventListener("dragover", (event) => event.preventDefault());
+    item.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const fromId = event.dataTransfer.getData("text/plain");
+      const from = wish.prepItems?.findIndex((prep) => prep.id === fromId);
+      const to = wish.prepItems?.findIndex((prep) => prep.id === item.dataset.prepItem);
+      if (from < 0 || to < 0 || from === to) return;
+      const [moved] = wish.prepItems.splice(from, 1);
+      wish.prepItems.splice(to, 0, moved);
+      commit("调整准备事项顺序", "wish", wish.id);
+    });
+  });
+
   detailPanel.querySelector("#imageUpload").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -968,6 +1105,63 @@ function renderDetail() {
     moveWishToCategory(wish, targetCategoryId);
   });
   detailPanel.querySelector("#deleteWishButton")?.addEventListener("click", () => deleteWish(wish));
+}
+
+function renderCountdown(wish) {
+  if (!wish.plannedAt || wish.fulfilledAt) return "";
+  const target = new Date(`${wish.plannedAt}T00:00:00`);
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  const days = Math.round((targetStart - todayStart) / 86400000);
+  if (days < 0) return `<div class="countdown overdue"><strong>别忘记实现！</strong><span>已超过 ${Math.abs(days)} 天</span></div>`;
+  if (days === 0) return '<div class="countdown today"><strong>今天要实现！</strong><span>计划日期就是今天</span></div>';
+  return `<div class="countdown"><strong>还有 ${days} 天</strong><span>计划于 ${escapeHtml(wish.plannedAt)} 实现</span></div>`;
+}
+
+function renderCountdownTag(wish) {
+  if (!wish.plannedAt || wish.fulfilledAt) return "";
+  const target = new Date(`${wish.plannedAt}T00:00:00`);
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  const days = Math.round((targetStart - todayStart) / 86400000);
+  if (days < 0) return `<span class="tag countdown-tag overdue">别忘记实现！</span>`;
+  if (days === 0) return '<span class="tag countdown-tag today">今天要实现！</span>';
+  return `<span class="tag countdown-tag">还有 ${days} 天</span>`;
+}
+
+function renderPrepChecklist(wish) {
+  const items = wish.prepItems || [];
+  if (!wish.prepStarted) {
+    return `
+      <section class="prep-checklist prep-not-started" aria-label="准备事项">
+        <div class="prep-checklist-head"><div><strong>幕后准备</strong><span>把这件愿望变成一个小计划。</span></div></div>
+        <button class="ink-button" id="startPrepButton" type="button">开始准备</button>
+      </section>
+    `;
+  }
+  return `
+    <section class="prep-checklist" aria-label="准备事项">
+      <div class="prep-checklist-head">
+        <div><strong>准备事项</strong><span>可以拖动调整顺序</span></div>
+        <span>${items.filter((item) => item.done).length}/${items.length}</span>
+      </div>
+      <div class="prep-list">
+        ${items.length ? items.map((item) => `
+          <div class="prep-item${item.done ? " done" : ""}" draggable="true" data-prep-item="${escapeAttribute(item.id)}">
+            <button type="button" class="prep-check" data-prep-toggle="${escapeAttribute(item.id)}" aria-label="${item.done ? "取消完成" : "标记完成"}">${item.done ? "✓" : ""}</button>
+            <div><strong>${escapeHtml(item.text)}</strong>${item.done ? `<small>${escapeHtml(item.completedBy || "愿望箱成员")} · ${escapeHtml(formatCommentTime(item.completedAt))}</small>` : ""}</div>
+            <button type="button" class="prep-delete" data-prep-delete="${escapeAttribute(item.id)}" aria-label="删除准备事项">×</button>
+          </div>
+        `).join("") : '<p class="prep-empty">还没有准备事项。</p>'}
+      </div>
+      <form class="prep-checklist-form" id="prepChecklistForm">
+        <input name="item" maxlength="80" placeholder="添加一个准备事项" />
+        <button class="backup-button" type="submit">添加</button>
+      </form>
+    </section>
+  `;
 }
 
 function renderCategoryOptions(selectedId) {
@@ -1109,6 +1303,7 @@ function showWishForm() {
       note: data.get("note").trim(),
       fulfilledAt: data.get("fulfilledAt"),
       wishAt: data.get("wishAt"),
+      plannedAt: "",
       privatePrep: data.get("privatePrep").trim(),
       diary: "",
       priority: data.get("priority") || "最近惦记",
@@ -1120,6 +1315,11 @@ function showWishForm() {
       revealedPrep: "",
       memoryImage: "",
       fulfilledBy: "",
+      placeName: "",
+      mapUrl: "",
+      photoLocation: "",
+      prepItems: [],
+      prepStarted: false,
       comments: [],
       image,
     };
@@ -1184,7 +1384,13 @@ function renderPriorityOptions(selected) {
 }
 
 function renderMemories() {
-  const doneWishes = state.wishes.filter((wish) => wish.fulfilledAt);
+  const doneWishes = state.wishes
+    .filter((wish) => wish.fulfilledAt)
+    .sort((a, b) => {
+      const diff = new Date(`${a.fulfilledAt}T00:00:00`) - new Date(`${b.fulfilledAt}T00:00:00`);
+      return memorySortOrder === "asc" ? diff : -diff;
+    });
+  updateMemorySortButton();
   if (!doneWishes.length) {
     memoryList.innerHTML =
       '<div class="empty-detail memory-empty"><span>memory book</span><p>实现过的愿望会自动来到这里，等第一篇小日记被收进来。</p></div>';
@@ -1230,6 +1436,30 @@ function renderMemories() {
     });
     memoryList.append(article);
   });
+}
+
+function updateMemorySortButton() {
+  if (memorySortButton) memorySortButton.textContent = memorySortOrder === "desc" ? "最新在前 ↓" : "最早在前 ↑";
+}
+
+function drawTodayWish() {
+  const candidateCategories = state.categories.filter((category) => ["美食", "日常"].includes(category.name));
+  const candidates = state.wishes.filter(
+    (wish) => !wish.fulfilledAt && candidateCategories.some((category) => category.id === wish.categoryId),
+  );
+  if (!candidates.length) {
+    showBackupStatus("还没有可抽取的愿望，可以先添加一个美食或日常愿望。");
+    setActiveView("categories");
+    showWishForm();
+    return;
+  }
+  const wish = candidates[Math.floor(Math.random() * candidates.length)];
+  state.activeCategoryId = wish.categoryId;
+  state.activeWishId = wish.id;
+  state.activeView = "categories";
+  commit();
+  window.setTimeout(() => wishList.querySelector(".wish-card.active")?.classList.add("draw-reveal"), 0);
+  showBackupStatus(`抽中了“${wish.title}”，开始准备吧！`);
 }
 
 function renderMemoryCardSection(label, content) {
@@ -1380,6 +1610,14 @@ function normalizeState(nextState) {
   normalized.activeCategoryId = nextState.activeCategoryId || seedState.activeCategoryId;
   normalized.activeWishId = nextState.activeWishId || seedState.activeWishId;
   normalized.activeView = nextState.activeView || "categories";
+  normalized.anniversaries = Array.isArray(nextState.anniversaries)
+    ? nextState.anniversaries.map((item) => ({
+        id: item.id || crypto.randomUUID(),
+        name: item.name || "未命名纪念日",
+        date: item.date || "",
+        photo: item.photo || "",
+      }))
+    : [];
   normalized.categories = (nextState.categories || seedState.categories).map((category, index) => ({
     ...category,
     color: category.color || ["#1640df", "#6f8d5f", "#b06b45", "#2f2923"][index % 4],
@@ -1390,6 +1628,7 @@ function normalizeState(nextState) {
     priority: PRIORITIES.includes(wish.priority) ? wish.priority : "最近惦记",
     image: wish.image || DEFAULT_COVER,
     wishAt: wish.wishAt || wish.reminderAt || "",
+    plannedAt: wish.plannedAt || "",
     privatePrep: wish.privatePrep || "",
     diary: wish.diary || "",
     createdBy: wish.createdBy || "最初的愿望收集者",
@@ -1399,6 +1638,19 @@ function normalizeState(nextState) {
     revealedPrep: wish.revealedPrep || "",
     memoryImage: wish.memoryImage || "",
     fulfilledBy: wish.fulfilledBy || "",
+    placeName: wish.placeName || "",
+    mapUrl: wish.mapUrl || "",
+    photoLocation: wish.photoLocation || "",
+    prepItems: Array.isArray(wish.prepItems)
+      ? wish.prepItems.map((item) => ({
+          id: item.id || crypto.randomUUID(),
+          text: item.text || "",
+          done: Boolean(item.done),
+          completedBy: item.completedBy || "",
+          completedAt: item.completedAt || "",
+        }))
+      : [],
+    prepStarted: Boolean(wish.prepStarted || (wish.prepItems || []).length),
     comments: Array.isArray(wish.comments)
       ? wish.comments.map((comment) => ({
           id: comment.id || `comment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
